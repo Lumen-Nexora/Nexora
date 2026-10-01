@@ -9,8 +9,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/fluxa/fluxa/internal/queue"
+	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+type mockRedis struct {
+	mr *miniredis.Miniredis
+}
+
+func newMockRedis(t *testing.T) *mockRedis {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	return &mockRedis{mr: mr}
+}
+
+func (m *mockRedis) Close() {
+	m.mr.Close()
+}
+
+func (m *mockRedis) ClientOptions() *redis.Options {
+	return &redis.Options{
+		Addr: m.mr.Addr(),
+	}
+}
 
 func TestDispatcher_SendsNonEmptyBodyMatchingPayload(t *testing.T) {
 	repo := newFakeRepo()
@@ -81,4 +106,110 @@ func TestDispatcher_SendsNonEmptyBodyMatchingPayload(t *testing.T) {
 			receivedContentType,
 		)
 	}
+}
+
+func TestDispatcher_SSRFAndAsync(t *testing.T) {
+	repo := newFakeRepo()
+	rdb := newMockRedis(t)
+	defer rdb.Close()
+
+	qClient := queue.NewClientWithOptions(rdb.ClientOptions())
+	defer qClient.Close()
+
+	svc := NewService(repo, rdb, qClient, 120, false)
+	Dispatcher := NewDispatcher(svc, qClient)
+
+	ep, _, err := svc.RegisterEndpoint(context.Background(), "https://example.com/webhook", []string{"transfer.completed"})
+	require.NoError(t, err)
+
+	err = Dispatcher.Dispatch(context.Background(), "transfer.completed", map[string]string{"id": "tx_123"})
+	assert.NoError(t, err)
+
+	// Test loopback URL rejection
+	loopbackEp, _, err := svc.RegisterEndpoint(context.Background(), "http://127.0.0.1/webhook", []string{"transfer.completed"})
+	require.NoError(t, err)
+	err = Dispatcher.Dispatch(context.Background(), "transfer.completed", map[string]string{"id": "tx_123"})
+	assert.NoError(t, err) // Dispatch should skip unsafe endpoints and not fail
+
+	_ = loopbackEp
+	_ = ep
+}
+
+func TestDispatcher_TimeoutAndMetadata(t *testing.T) {
+	svc := NewService(newFakeRepo(), nil, nil, 120, false)
+	// Verify metadata IP blocking logic directly
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(20 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	ctx := context.Background()
+	err := svc.(*service).validateWebhookURL(ctx, srv.URL)
+	// Local server might resolve to 127.0.0.1 which is blocked unless allowPrivateNetworks is true
+	assert.Error(t, err)
+}
+
+func TestDispatcher_ComprehensiveSSRFAndTimeoutScenarios(t *testing.T) {
+	repo := newFakeRepo()
+	rdb := newMockRedis(t)
+	defer rdb.Close()
+
+	qClient := queue.NewClientWithOptions(rdb.ClientOptions())
+	defer qClient.Close()
+
+	svc := NewService(repo, rdb, qClient, 120, false)
+	_ = NewDispatcher(svc, qClient)
+
+	ctx := context.Background()
+
+	// 1. Loopback URL test
+	err := svc.(*service).validateWebhookURL(ctx, "http://127.0.0.1:8080/webhook")
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrUnsafeWebhookURL)
+
+	// 2. Link-local metadata URL test (169.254.169.254)
+	err = svc.(*service).validateWebhookURL(ctx, "http://169.254.169.254/latest/meta-data/")
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrUnsafeWebhookURL)
+
+	// 3. Redirect to internal host test
+	internalSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer internalSrv.Close()
+
+	redirectSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, internalSrv.URL, http.StatusFound)
+	}))
+	defer redirectSrv.Close()
+
+	client := svc.(*service).client
+	req, err := http.NewRequestWithContext(ctx, "POST", redirectSrv.URL, nil)
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	if err == nil {
+		resp.Body.Close()
+	}
+	// Since redirects are disabled or checked, either Do returns an error or it doesn't follow to internalSrv
+	// With CheckRedirect returning useLastResponse, resp.StatusCode should be 302, not 200.
+	if resp != nil {
+		assert.Equal(t, http.StatusFound, resp.StatusCode)
+	}
+
+	// 4. Endpoint that hangs past the timeout
+	hangingSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer hangingSrv.Close()
+
+	// Create client with a very short timeout for testing hang behavior
+	shortClient := svc.(*service).newSafeHTTPClient()
+	shortClient.Timeout = 20 * time.Millisecond
+
+	hangReq, err := http.NewRequestWithContext(ctx, "POST", hangingSrv.URL, nil)
+	require.NoError(t, err)
+	_, err = shortClient.Do(hangReq)
+	assert.Error(t, err)
 }

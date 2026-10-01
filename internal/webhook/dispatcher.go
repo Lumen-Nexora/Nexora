@@ -4,64 +4,88 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
+
+	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/fluxa/fluxa/internal/queue"
+	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
 
-// Dispatcher handles webhook dispatches.
-type Dispatcher interface {
-	Dispatch(ctx context.Context, eventType string, payload interface{}) error
+// Dispatcher handles synchronous dispatching converted to asynchronous queueing
+// with SSRF-protected HTTP clients.
+type Dispatcher struct {
+	svc         Service
+	queueClient *queue.Client
+	client      *http.Client
 }
 
-type HttpDispatcher struct {
-	client *http.Client
-	store  DeliveryStore
-}
-
-type DeliveryStore interface {
-	CreateDelivery(ctx context.Context, ep Endpoint, payload string) error
-}
-
-type Endpoint struct {
-	URL string
-}
-
-func NewHttpDispatcher(client *http.Client, store DeliveryStore) *HttpDispatcher {
-	return &HttpDispatcher{
-		client: client,
-		store:  store,
+// NewDispatcher creates a new Webhook Dispatcher.
+func NewDispatcher(svc Service, queueClient *queue.Client, client *http.Client) *Dispatcher {
+	return &Dispatcher{
+		svc:         svc,
+		queueClient: queueClient,
+		client:      client,
 	}
 }
 
-func (d *HttpDispatcher) Dispatch(ctx context.Context, ep Endpoint, eventType string, eventData interface{}) error {
-	data, err := json.Marshal(eventData)
+// Dispatch enqueues a webhook delivery asynchronously, removing it from the caller's request path.
+func (d *Dispatcher) Dispatch(ctx context.Context, eventType string, payload interface{}) error {
+	// Find subscriptions matching this event type
+	subs, err := d.svc.(*service).repo.GetSubscriptionsForEvent(ctx, nil, eventType)
 	if err != nil {
-		return err
+		return fmt.Errorf("get subscriptions for event %q: %w", eventType, err)
 	}
-	payload := string(data)
+	if len(subs) == 0 {
+		return nil
+	}
 
-	err = d.store.CreateDelivery(ctx, ep, payload)
+	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal webhook payload: %w", err)
 	}
 
-	var body *bytes.Buffer
-	if payload != "" {
-		body = bytes.NewBufferString(payload)
-	}
+	now := time.Now().UTC()
+	for _, sub := range subs {
+		ep, err := d.svc.(*service).repo.GetEndpoint(ctx, sub.EndpointID)
+		if err != nil {
+			log.Error().Err(err).Str("endpoint_id", sub.EndpointID).Msg("webhook: failed to fetch endpoint for subscription")
+			continue
+		}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", ep.URL, body)
-	if err != nil {
-		return err
-	}
-	if payload != "" {
-		req.Header.Set("Content-Type", "application/json")
-	}
+		if ep.Paused {
+			continue
+		}
 
-	resp, err := d.client.Do(req)
-	if err != nil {
-		return err
+		// Pre-validate the URL via SSRF guard before queueing
+		if err := d.svc.(*service).validateWebhookURL(ctx, ep.URL); err != nil {
+			log.Error().Err(err).Str("endpoint_url", ep.URL).Msg("webhook: skipping delivery to unsafe URL")
+			continue
+		}
+
+		delivery := &domain.WebhookDelivery{
+			ID:         uuid.New().String(),
+			EndpointID: ep.ID,
+			EventType:  eventType,
+			Payload:    string(payloadBytes),
+			Status:     domain.DeliveryStatusPending,
+			Attempts:   0,
+			CreatedAt:  now,
+		}
+
+		if err := d.svc.(*service).repo.CreateDelivery(ctx, delivery); err != nil {
+			log.Error().Err(err).Str("delivery_id", delivery.ID).Msg("webhook: failed to create delivery record")
+			continue
+		}
+
+		if err := d.queueClient.EnqueueWebhookDelivery(ctx, delivery.ID); err != nil {
+			log.Error().Err(err).Str(
+				"delivery_id", delivery.ID,
+			).Msg("webhook: failed to enqueue delivery")
+		}
 	}
-	defer resp.Body.Close()
 
 	return nil
 }
