@@ -21,11 +21,11 @@ import (
 )
 
 type Handler struct {
-	svc            Service
-	audit          interface {
+	svc   Service
+	audit interface {
 		Record(context.Context, *domain.AuditEvent) error
 	}
-	idempotencyMW  func(http.Handler) http.Handler
+	idempotencyMW func(http.Handler) http.Handler
 }
 
 func NewHandler(svc Service) *Handler {
@@ -128,7 +128,7 @@ func (h *Handler) RegisterEndpoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ep, _, err := h.svc.RegisterEndpoint(r.Context(), req.URL, req.Events)
+	ep, secret, err := h.svc.RegisterEndpoint(r.Context(), req.URL, req.Events)
 	if err != nil {
 		if errors.Is(err, ErrUnsafeWebhookURL) || errors.Is(err, ErrUnsupportedEventType) {
 			api.Error(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
@@ -137,7 +137,20 @@ func (h *Handler) RegisterEndpoint(w http.ResponseWriter, r *http.Request) {
 		api.InternalError(w, err)
 		return
 	}
-	api.JSON(w, http.StatusCreated, ep)
+	api.JSON(w, http.StatusCreated, map[string]interface{}{
+		"id":                ep.ID,
+		"tenant_id":         ep.TenantID,
+		"url":               ep.URL,
+		"secret":            secret,
+		"events":            ep.Events,
+		"active":            ep.Active,
+		"success_count":     ep.SuccessCount,
+		"failure_count":     ep.FailureCount,
+		"last_delivered_at": ep.LastDeliveredAt,
+		"notified_failing":  ep.NotifiedFailing,
+		"created_at":        ep.CreatedAt,
+		"updated_at":        ep.UpdatedAt,
+	})
 }
 
 func (h *Handler) DeleteEndpoint(w http.ResponseWriter, r *http.Request) {

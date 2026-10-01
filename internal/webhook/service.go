@@ -146,11 +146,11 @@ func NewService(repo Repository, rdb redis.UniversalClient, queueClient *queue.C
 // NewService remains available for deployments without tenant webhook storage.
 func NewConfigService(repo Repository, configRepo ConfigRepository, q *queue.Client, encryptionKey ...[]byte) Service {
 	s := &service{
-		repo:         repo,
-		configRepo:   configRepo,
-		queueClient:  q,
-		maxPerMinute: 120,
-		maxAttempts:  len(defaultBackoffSchedule()),
+		repo:          repo,
+		configRepo:    configRepo,
+		queueClient:   q,
+		maxPerMinute:  120,
+		maxAttempts:   len(defaultBackoffSchedule()),
 		encryptionKey: serviceEncryptionKey(encryptionKey),
 	}
 	s.client = s.newSafeHTTPClient()
@@ -963,14 +963,14 @@ func (s *service) TestDelivery(ctx context.Context) (*domain.TenantWebhookDelive
 
 	now := time.Now().UTC()
 	delivery := &domain.TenantWebhookDelivery{
-		ID:        uuid.New().String(),
-		TenantID:  tenantID,
+		ID:           uuid.New().String(),
+		TenantID:     tenantID,
 		SigningKeyID: config.SigningKeyID,
-		EventType: domain.EventType("webhook.test"),
-		Payload:   payload,
-		Status:    domain.DeliveryPending,
-		CreatedAt: now,
-		UpdatedAt: now,
+		EventType:    domain.EventType("webhook.test"),
+		Payload:      payload,
+		Status:       domain.DeliveryPending,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	if err := s.configRepo.CreateConfigDelivery(ctx, delivery); err != nil {
 		return nil, err
@@ -1084,14 +1084,14 @@ func (s *service) DispatchToTenants(ctx context.Context, eventType domain.EventT
 
 		now := time.Now().UTC()
 		delivery := &domain.TenantWebhookDelivery{
-			ID:        uuid.New().String(),
-			TenantID:  config.TenantID,
+			ID:           uuid.New().String(),
+			TenantID:     config.TenantID,
 			SigningKeyID: config.SigningKeyID,
-			EventType: eventType,
-			Payload:   body,
-			Status:    domain.DeliveryPending,
-			CreatedAt: now,
-			UpdatedAt: now,
+			EventType:    eventType,
+			Payload:      body,
+			Status:       domain.DeliveryPending,
+			CreatedAt:    now,
+			UpdatedAt:    now,
 		}
 
 		// A scheduled resume that has elapsed lifts the pause before we decide.
@@ -1161,9 +1161,9 @@ func (s *service) attemptConfigDelivery(ctx context.Context, config *domain.Tena
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Fluxa-Signature", signBody(config.Secret, delivery.Payload))
-		if delivery.SigningKeyID != "" {
-			req.Header.Set("X-Fluxa-Key-ID", delivery.SigningKeyID)
-		}
+	if delivery.SigningKeyID != "" {
+		req.Header.Set("X-Fluxa-Key-ID", delivery.SigningKeyID)
+	}
 	req.Header.Set("X-Fluxa-Event", string(delivery.EventType))
 	req.Header.Set("X-Fluxa-Tenant-ID", delivery.TenantID)
 
