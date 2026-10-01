@@ -13,6 +13,7 @@ import (
 	"github.com/fluxa/fluxa/internal/tenant"
 	walletpkg "github.com/fluxa/fluxa/internal/wallet"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/shopspring/decimal"
 )
 
@@ -443,7 +444,8 @@ func (s *service) initiate(ctx context.Context, params TransferParams) (*domain.
 
 	if s.queue != nil {
 		if err := s.queue.EnqueueTransfer(ctx, tx.ID); err != nil {
-			_ = err
+			zerolog.Ctx(ctx).Error().Err(err).Str("transaction_id", tx.ID).Msg("transfer: failed to enqueue settlement job")
+			return nil, fmt.Errorf("enqueue settlement: %w", err)
 		}
 	}
 

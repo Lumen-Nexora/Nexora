@@ -2,7 +2,6 @@ package transfer
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -85,7 +84,9 @@ func (m *dailyLimitMockWalletRepo) GetByPublicKey(_ context.Context, _ string) (
 func (m *dailyLimitMockWalletRepo) List(_ context.Context, _, _ int) ([]*domain.Wallet, error) {
 	return nil, nil
 }
-func (m *dailyLimitMockWalletRepo) CountByTenant(_ context.Context, _ string) (int, error) { return 0, nil }
+func (m *dailyLimitMockWalletRepo) CountByTenant(_ context.Context, _ string) (int, error) {
+	return 0, nil
+}
 func (m *dailyLimitMockWalletRepo) UpsertBalance(_ context.Context, _, _, _ string, _ decimal.Decimal) error {
 	return nil
 }

@@ -4,15 +4,18 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/fluxa/fluxa/internal/domain"
 	"github.com/fluxa/fluxa/internal/fees"
+	"github.com/fluxa/fluxa/internal/queue"
 	"github.com/fluxa/fluxa/internal/server/idempotency"
 	"github.com/fluxa/fluxa/internal/tenant"
 	"github.com/fluxa/fluxa/internal/transfer"
+	"github.com/fluxa/fluxa/internal/wallet"
 	"github.com/google/uuid"
+	"github.com/hibiken/asynq"
 	"github.com/shopspring/decimal"
+	"time"
 )
 
 type basicMockWalletRepo struct {
@@ -27,21 +30,27 @@ func (m *basicMockWalletRepo) GetByID(ctx context.Context, id string) (*domain.W
 	}
 	return w, nil
 }
+
 func (m *basicMockWalletRepo) GetByPublicKey(ctx context.Context, pubKey string) (*domain.Wallet, error) {
 	return nil, nil
 }
+
 func (m *basicMockWalletRepo) List(ctx context.Context, limit, offset int) ([]*domain.Wallet, error) {
 	return nil, nil
 }
+
 func (m *basicMockWalletRepo) CountByTenant(ctx context.Context, tenantID string) (int, error) {
 	return 0, nil
 }
+
 func (m *basicMockWalletRepo) UpsertBalance(ctx context.Context, walletID, assetCode, issuer string, balance decimal.Decimal) error {
 	return nil
 }
+
 func (m *basicMockWalletRepo) GetBalances(ctx context.Context, walletID string) ([]domain.BalanceRecord, error) {
 	return nil, nil
 }
+
 func (m *basicMockWalletRepo) UpdateSyncCursor(ctx context.Context, walletID, cursor string) error {
 	return nil
 }
@@ -54,33 +63,42 @@ func (m *basicMockTxRepo) Create(ctx context.Context, tx *domain.Transaction) er
 	m.txs = append(m.txs, tx)
 	return nil
 }
-func (m *basicMockTxRepo) CreateWithMonthlyLimit(ctx context.Context, tx *domain.Transaction, tenantID string, year int, month time.Month, limit int) error {
-	return nil
-}
 func (m *basicMockTxRepo) GetByID(ctx context.Context, id string) (*domain.Transaction, error) {
 	return nil, nil
 }
+
+func (m *basicMockTxRepo) CreateWithMonthlyLimit(ctx context.Context, tx *domain.Transaction, tenantID string, year int, month time.Month, limit int) error {
+	return nil
+}
+
 func (m *basicMockTxRepo) ClaimForSubmission(ctx context.Context, id string) error {
 	return nil
 }
+
 func (m *basicMockTxRepo) UpdateStatus(ctx context.Context, id string, status domain.TransactionStatus, txHash string) error {
 	return nil
 }
+
 func (m *basicMockTxRepo) UpsertByTxHash(ctx context.Context, tx *domain.Transaction) error {
 	return nil
 }
+
 func (m *basicMockTxRepo) ListByWallet(ctx context.Context, walletID string, limit, offset int) ([]*domain.Transaction, error) {
 	return m.txs, nil
 }
+
 func (m *basicMockTxRepo) ExistsByTxHash(ctx context.Context, txHash string) (bool, error) {
 	return false, nil
 }
+
 func (m *basicMockTxRepo) GetByIdempotencyKey(ctx context.Context, orgID, idempotencyKey string) (*domain.Transaction, error) {
 	return nil, domain.ErrTransactionNotFound
 }
+
 func (m *basicMockTxRepo) ListByBatch(ctx context.Context, batchID string) ([]*domain.Transaction, error) {
 	return nil, nil
 }
+
 func (m *basicMockTxRepo) CountMonthlyTransfersByTenant(ctx context.Context, tenantID string, year int, month time.Month) (int, error) {
 	return 0, nil
 }
@@ -97,9 +115,11 @@ func (m *basicMockFeeSvc) CalculateTransferFee(ctx context.Context, orgID, asset
 		FeeBps:    0,
 	}, nil
 }
+
 func (m *basicMockFeeSvc) CalculateConversionFee(ctx context.Context, orgID, asset string, amount decimal.Decimal) (*fees.TransferFee, error) {
 	return nil, nil
 }
+
 func (m *basicMockFeeSvc) RecordCollection(ctx context.Context, collection *domain.FeeCollection) error {
 	return nil
 }
@@ -107,6 +127,9 @@ func (m *basicMockFeeSvc) SetSchedule(_ context.Context, _ *domain.FeeSchedule) 
 	return nil
 }
 func (m *basicMockFeeSvc) ListCollected(_ context.Context, _, _ *time.Time, _ *string, _, _ int) ([]*domain.FeeCollection, error) {
+	return nil, nil
+}
+func (m *basicMockFeeSvc) ListCollectedSummary(ctx context.Context, orgID string, since *time.Time) ([]domain.FeeCollectionSummary, error) {
 	return nil, nil
 }
 
@@ -242,5 +265,62 @@ func TestListTransactions(t *testing.T) {
 
 	if len(txs) != 2 {
 		t.Errorf("expected 2 txs, got %d", len(txs))
+	}
+}
+
+type failingQueueRepo struct {
+	transfer.Repository
+}
+
+func (r *failingQueueRepo) Create(ctx context.Context, tx *domain.Transaction) error {
+	return nil
+}
+
+type failingWalletRepo struct {
+	wallet.Repository
+}
+
+func (r *failingWalletRepo) GetByID(ctx context.Context, id string) (*domain.Wallet, error) {
+	return &domain.Wallet{ID: id, PublicKey: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"}, nil
+}
+
+func (r *failingWalletRepo) GetBalances(context.Context, string) ([]domain.BalanceRecord, error) {
+	return []domain.BalanceRecord{{AssetCode: "USDC", Balance: "100"}}, nil
+}
+
+type failingFeeService struct {
+	fees.Service
+}
+
+func (s *failingFeeService) CalculateTransferFee(ctx context.Context, tenantID, asset string, amount decimal.Decimal) (*fees.TransferFee, error) {
+	return &fees.TransferFee{FeeAmount: decimal.Zero, NetAmount: amount, FeeBps: 0}, nil
+}
+
+func (s *failingFeeService) CalculateConversionFee(ctx context.Context, tenantID, asset string, amount decimal.Decimal) (*fees.TransferFee, error) {
+	return nil, nil
+}
+
+func (s *failingFeeService) RecordCollection(ctx context.Context, collection *domain.FeeCollection) error {
+	return nil
+}
+
+func (s *failingFeeService) ListCollectedSummary(ctx context.Context, tenantID string, since *time.Time) ([]domain.FeeCollectionSummary, error) {
+	return nil, nil
+}
+
+func (s *failingFeeService) GetSchedule(ctx context.Context, tenantID string) (*domain.FeeSchedule, error) {
+	return nil, nil
+}
+
+func TestInitiateTransfer_EnqueueFailure(t *testing.T) {
+	// If queue client is provided with a bad address or closed, or if we test service behavior with a queue that fails.
+}
+
+func TestServiceEnqueueFailureObservable(t *testing.T) {
+	q := queue.NewClientWithOptions(asynq.RedisClientOpt{Addr: "127.0.0.1:1"})
+	svc := transfer.NewService(&failingQueueRepo{}, &failingWalletRepo{}, &failingFeeService{}, q)
+	_, err := svc.InitiateTransfer(context.Background(), "wallet-1", "wallet-2", "USDC", decimal.NewFromInt(10))
+	if err == nil {
+		t.Errorf("expected error on failed enqueue, got nil")
 	}
 }

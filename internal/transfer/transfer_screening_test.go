@@ -119,7 +119,7 @@ func newScreeningService(txRepo Repository, screener Screener) Service {
 	// status written to the row, which is what gates settlement.
 	svc := NewService(txRepo, &limitMockWalletRepo{}, &limitMockFeeSvc{}, nil)
 	if screener != nil {
-		svc = svc.WithScreener(screener)
+		svc = ConfigureScreener(svc, screener)
 	}
 	return svc
 }

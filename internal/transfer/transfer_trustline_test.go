@@ -155,7 +155,7 @@ func TestTransferMissingTrustlineReturns422Error(t *testing.T) {
 		},
 	}
 
-	svc := transfer.NewService(txRepo, wRepo, feeSvc, nil).WithStellarClient(stClient)
+	svc := transfer.ConfigureStellarClient(transfer.NewService(txRepo, wRepo, feeSvc, nil), stClient)
 
 	_, err := svc.InitiateTransfer(context.Background(), "w-from", "w-to", "USDC", decimal.NewFromInt(10))
 	if err == nil {
@@ -188,7 +188,7 @@ func TestTransferXLMRequiresNoTrustline(t *testing.T) {
 		},
 	}
 
-	svc := transfer.NewService(txRepo, wRepo, feeSvc, nil).WithStellarClient(stClient)
+	svc := transfer.ConfigureStellarClient(transfer.NewService(txRepo, wRepo, feeSvc, nil), stClient)
 
 	tx, err := svc.InitiateTransfer(context.Background(), "w-from", "w-to", "XLM", decimal.NewFromInt(10))
 	if err != nil {
@@ -208,7 +208,7 @@ func TestTransferRejectsNonexistentDestinationBeforePersisting(t *testing.T) {
 	client := &mockStellarClient{loadErr: &horizonclient.Error{
 		Response: &http.Response{StatusCode: http.StatusNotFound},
 	}}
-	svc := transfer.NewService(txRepo, walletRepo, fees.NewService(&mockFeeRepo{}), nil).WithStellarClient(client)
+	svc := transfer.ConfigureStellarClient(transfer.NewService(txRepo, walletRepo, fees.NewService(&mockFeeRepo{}), nil), client)
 
 	_, err := svc.InitiateTransfer(context.Background(), "from", "to", "XLM", decimal.NewFromInt(1))
 	if !errors.Is(err, domain.ErrBeneficiaryAccountNotFound) {
