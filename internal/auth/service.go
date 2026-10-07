@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/fluxa/fluxa/internal/apikey"
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/postgres"
+	"github.com/Lumen-Nexora/Nexora/internal/apikey"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/postgres"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"time"
@@ -20,7 +20,7 @@ var dummyHash []byte
 
 func init() {
 	var err error
-	dummyHash, err = bcrypt.GenerateFromPassword([]byte("fluxa-timing-dummy-password"), bcrypt.DefaultCost)
+	dummyHash, err = bcrypt.GenerateFromPassword([]byte("nexora-timing-dummy-password"), bcrypt.DefaultCost)
 	if err != nil {
 		panic(fmt.Sprintf("failed to generate dummy bcrypt hash: %v", err))
 	}

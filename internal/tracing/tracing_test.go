@@ -68,7 +68,7 @@ func TestInitExportsToConfiguredEndpoint(t *testing.T) {
 	shutdown, err := Init(context.Background(), Config{
 		Enabled:          true,
 		ExporterEndpoint: ts.URL,
-		ServiceName:      "fluxa-test",
+		ServiceName:      "nexora-test",
 	})
 	if err != nil {
 		t.Fatalf("Init() error: %v", err)

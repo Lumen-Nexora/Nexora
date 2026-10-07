@@ -16,8 +16,8 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-const WALLET_IDS_KEY = 'fluxa_wallet_ids';
-const MODE_KEY = 'fluxa_mode';
+const WALLET_IDS_KEY = 'nexora_wallet_ids';
+const MODE_KEY = 'nexora_mode';
 
 function readMode(): EnvironmentMode {
   if (typeof window === 'undefined') return 'live';
@@ -26,7 +26,7 @@ function readMode(): EnvironmentMode {
 
 function keyForMode(mode: EnvironmentMode): string | null {
   if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem(`fluxa_api_key_${mode}`);
+  return window.localStorage.getItem(`nexora_api_key_${mode}`);
 }
 
 function modeForKey(key: string): EnvironmentMode {
@@ -38,13 +38,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [apiKey, setApiKey] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
     const storedMode = readMode();
-    return keyForMode(storedMode) || window.localStorage.getItem('fluxa_api_key');
+    return keyForMode(storedMode) || window.localStorage.getItem('nexora_api_key');
   });
 
   const login = useCallback((key: string) => {
     const nextMode = modeForKey(key);
-    window.localStorage.setItem(`fluxa_api_key_${nextMode}`, key);
-    window.localStorage.setItem('fluxa_api_key', key);
+    window.localStorage.setItem(`nexora_api_key_${nextMode}`, key);
+    window.localStorage.setItem('nexora_api_key', key);
     window.localStorage.setItem(MODE_KEY, nextMode);
     setMode(nextMode);
     setApiKey(key);
@@ -52,8 +52,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     const currentMode = readMode();
-    window.localStorage.removeItem(`fluxa_api_key_${currentMode}`);
-    window.localStorage.removeItem('fluxa_api_key');
+    window.localStorage.removeItem(`nexora_api_key_${currentMode}`);
+    window.localStorage.removeItem('nexora_api_key');
     window.localStorage.removeItem(WALLET_IDS_KEY);
     setApiKey(null);
   }, []);
@@ -61,8 +61,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const switchMode = useCallback((nextMode: EnvironmentMode) => {
     window.localStorage.setItem(MODE_KEY, nextMode);
     const nextKey = keyForMode(nextMode);
-    if (nextKey) window.localStorage.setItem('fluxa_api_key', nextKey);
-    else window.localStorage.removeItem('fluxa_api_key');
+    if (nextKey) window.localStorage.setItem('nexora_api_key', nextKey);
+    else window.localStorage.removeItem('nexora_api_key');
     setMode(nextMode);
     setApiKey(nextKey);
   }, []);

@@ -10,7 +10,7 @@ import { FiatResource } from './resources/fiat';
 import { PaymentLinksResource } from './resources/payment_links';
 import { RefundsResource } from './resources/refunds';
 
-export interface FluxaClientConfig {
+export interface NexoraClientConfig {
   apiKey: string;
   baseUrl?: string;
   timeout?: number;
@@ -28,12 +28,12 @@ export interface FluxaClientConfig {
   requireIdempotencyKey?: boolean;
 }
 
-const DEFAULT_BASE_URL = 'https://api.fluxa.io';
+const DEFAULT_BASE_URL = 'https://api.nexora.io';
 const DEFAULT_TIMEOUT = 30_000;
 const DEFAULT_MAX_RETRIES = 0;
 const DEFAULT_RETRY_DELAY = 500;
 
-export class FluxaClient {
+export class NexoraClient {
   readonly wallets: WalletsResource;
   readonly transfers: TransfersResource;
   readonly fx: FXResource;
@@ -47,7 +47,7 @@ export class FluxaClient {
 
   private http: HttpClient;
 
-  constructor(config: FluxaClientConfig) {
+  constructor(config: NexoraClientConfig) {
     if (!config.apiKey) {
       throw new Error('apiKey is required');
     }

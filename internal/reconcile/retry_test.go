@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/alerting"
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/alerting"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/shopspring/decimal"
 )
 

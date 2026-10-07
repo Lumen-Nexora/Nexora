@@ -1,4 +1,4 @@
--- Claimable balances Fluxa created on behalf of an org. The row is keyed by
+-- Claimable balances Nexora created on behalf of an org. The row is keyed by
 -- the Stellar balance ID, which is derived deterministically from the
 -- CreateClaimableBalance operation, so a balance can never be recorded twice
 -- and can always be reconciled against Horizon.

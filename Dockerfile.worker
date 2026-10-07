@@ -1,5 +1,5 @@
-# Fluxa background worker image (cmd/worker).
-# Build:   docker build -f Dockerfile.worker -t fluxa-worker .
+# Nexora background worker image (cmd/worker).
+# Build:   docker build -f Dockerfile.worker -t nexora-worker .
 # Compose: docker compose up --build worker
 
 # Build stage

@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/stellar"
-	"github.com/fluxa/fluxa/internal/webhook"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/stellar"
+	"github.com/Lumen-Nexora/Nexora/internal/webhook"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/shopspring/decimal"
@@ -226,7 +226,7 @@ func (s *service) GetBalances(ctx context.Context) ([]AssetBalance, error) {
 	return balances, nil
 }
 
-// GetReserveBreakdown sums, across every wallet Fluxa custodies, the XLM
+// GetReserveBreakdown sums, across every wallet Nexora custodies, the XLM
 // Stellar's protocol requires each account to keep locked up: a fixed
 // 2*baseReserve per account plus baseReserve per trustline and per open
 // offer (Stellar "subentries"). This is a platform-wide obligation, not

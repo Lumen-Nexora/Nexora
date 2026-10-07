@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/api"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/api"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"golang.org/x/time/rate"
 )
 

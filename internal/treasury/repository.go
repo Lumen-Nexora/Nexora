@@ -3,7 +3,7 @@ package treasury
 import (
 	"context"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 // Config holds the per-asset sweep policy stored in treasury_config.
@@ -24,7 +24,7 @@ type Repository interface {
 	ListConfig(ctx context.Context) ([]*domain.TreasuryConfig, error)
 	UpdateConfig(ctx context.Context, cfg *domain.TreasuryConfig) error
 	// ListWalletPublicKeys returns the Stellar public key of every wallet
-	// Fluxa custodies, across all tenants — treasury reserve accounting is a
+	// Nexora custodies, across all tenants — treasury reserve accounting is a
 	// platform-wide concern, not scoped to a single org.
 	ListWalletPublicKeys(ctx context.Context) ([]string, error)
 	RecordSweep(ctx context.Context, log *domain.TreasurySweepLog) error

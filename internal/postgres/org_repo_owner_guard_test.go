@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )

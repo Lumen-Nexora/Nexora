@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from .errors import FluxaError, classify_error
+from .errors import NexoraError, classify_error
 
 
 @dataclass(frozen=True)
@@ -80,7 +80,7 @@ class HTTPClient:
                 if safe_to_retry and attempt < self.max_retries:
                     await asyncio.sleep(self.retry_delay * (2**attempt))
                     continue
-                raise FluxaError(0, "NETWORK_ERROR", str(exc)) from exc
+                raise NexoraError(0, "NETWORK_ERROR", str(exc)) from exc
 
             if response.status_code == 204:
                 return None
@@ -103,7 +103,7 @@ class HTTPClient:
                 raise error
             return data
 
-        raise FluxaError(0, "NETWORK_ERROR", str(last_error or "request failed"))
+        raise NexoraError(0, "NETWORK_ERROR", str(last_error or "request failed"))
 
 
 def idempotency_required(path: str) -> bool:

@@ -1,4 +1,4 @@
-module github.com/fluxa/fluxa
+module github.com/Lumen-Nexora/Nexora
 
 go 1.24.0
 

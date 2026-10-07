@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/fees"
-	"github.com/fluxa/fluxa/internal/postgres"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/fees"
+	"github.com/Lumen-Nexora/Nexora/internal/postgres"
 	"github.com/shopspring/decimal"
 )
 

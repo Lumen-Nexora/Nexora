@@ -7,8 +7,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/stellar"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/stellar"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 )

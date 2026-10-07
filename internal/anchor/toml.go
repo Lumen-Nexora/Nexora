@@ -11,7 +11,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// tomlDoc mirrors the subset of SEP-1 (stellar.toml) fields Fluxa needs to
+// tomlDoc mirrors the subset of SEP-1 (stellar.toml) fields Nexora needs to
 // register an anchor: authentication, transfer server endpoints and the
 // assets the anchor issues/supports.
 type tomlDoc struct {

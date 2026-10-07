@@ -1,4 +1,4 @@
-package fluxa
+package nexora
 
 type CreateWalletResponse = WalletCreated
 type GetBalancesResponse = WalletBalances

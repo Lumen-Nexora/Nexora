@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/api"
+	"github.com/Lumen-Nexora/Nexora/internal/api"
 	"golang.org/x/time/rate"
 )
 

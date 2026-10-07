@@ -1,4 +1,4 @@
-// Fluxa webhook signature verification (TypeScript / Node.js).
+// Nexora webhook signature verification (TypeScript / Node.js).
 // No external dependencies — uses Node's built-in `crypto` module only.
 
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -11,12 +11,12 @@ export interface VerifyResult {
 }
 
 /**
- * Verifies a Fluxa webhook delivery.
+ * Verifies a Nexora webhook delivery.
  *
  * @param secret     The webhook endpoint's signing secret.
- * @param timestamp  Value of the `X-Fluxa-Timestamp` header (Unix seconds, as a string).
+ * @param timestamp  Value of the `X-Nexora-Timestamp` header (Unix seconds, as a string).
  * @param body       The raw, unparsed request body exactly as received.
- * @param signature  Value of the `X-Fluxa-Signature` header, e.g. "sha256=...".
+ * @param signature  Value of the `X-Nexora-Signature` header, e.g. "sha256=...".
  */
 export function verifyWebhookSignature(
   secret: string,
@@ -60,8 +60,8 @@ export function verifyWebhookSignature(
 // Usage:
 //   const result = verifyWebhookSignature(
 //     webhookSecret,
-//     request.headers["x-fluxa-timestamp"],
+//     request.headers["x-nexora-timestamp"],
 //     rawBody, // must be the raw string body, not JSON.parse()'d and re-stringified
-//     request.headers["x-fluxa-signature"],
+//     request.headers["x-nexora-signature"],
 //   );
 //   if (!result.valid) return response.status(400).send(result.reason);

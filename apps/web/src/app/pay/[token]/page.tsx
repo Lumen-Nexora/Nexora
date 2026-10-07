@@ -60,7 +60,7 @@ export default function HostedPaymentPage() {
       <div className="mx-auto max-w-lg">
         <div className="mb-12 flex items-center gap-3">
           <div className="grid h-10 w-10 place-items-center rounded-md bg-emerald-800 text-white">F</div>
-          <span className="font-semibold">Fluxa Checkout</span>
+          <span className="font-semibold">Nexora Checkout</span>
         </div>
         <div className="mb-8 border-b border-slate-300 pb-8">
           <p className="mb-3 text-sm font-semibold uppercase text-emerald-800">Secure payment</p>

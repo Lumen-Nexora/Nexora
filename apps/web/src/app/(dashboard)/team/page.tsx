@@ -71,7 +71,7 @@ export default function TeamPage() {
         <EmptyState
           icon={Users}
           title="Team management is coming soon"
-          description="User and role management will be available via the Fluxa API."
+          description="User and role management will be available via the Nexora API."
         />
       </Card>
     </div>

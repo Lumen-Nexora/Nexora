@@ -25,11 +25,11 @@ export default function LoginPage() {
     try {
       login(apiKey);
       await api.getHealth();
-      toast('Connected to Fluxa API', 'success');
+      toast('Connected to Nexora API', 'success');
       router.push('/overview');
     } catch {
       setError('Invalid API key or API unreachable');
-      localStorage.removeItem('fluxa_api_key');
+      localStorage.removeItem('nexora_api_key');
     } finally {
       setIsLoading(false);
     }
@@ -42,7 +42,7 @@ export default function LoginPage() {
           <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <span className="font-bold">F</span>
           </div>
-          <CardTitle className="text-xl">Sign in to Fluxa</CardTitle>
+          <CardTitle className="text-xl">Sign in to Nexora</CardTitle>
           <CardDescription>Enter your secret API key to access the dashboard.</CardDescription>
         </CardHeader>
         <CardContent>
@@ -78,7 +78,7 @@ export default function LoginPage() {
           </form>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            API keys are managed via the Fluxa API or CLI.
+            API keys are managed via the Nexora API or CLI.
           </p>
         </CardContent>
       </Card>

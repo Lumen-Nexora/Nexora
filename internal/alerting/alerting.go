@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/tracing"
+	"github.com/Lumen-Nexora/Nexora/internal/tracing"
 	"github.com/rs/zerolog/log"
 )
 

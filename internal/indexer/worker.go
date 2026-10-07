@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/config"
-	"github.com/fluxa/fluxa/internal/queue"
-	"github.com/fluxa/fluxa/internal/tracing"
+	"github.com/Lumen-Nexora/Nexora/internal/config"
+	"github.com/Lumen-Nexora/Nexora/internal/queue"
+	"github.com/Lumen-Nexora/Nexora/internal/tracing"
 	"github.com/hibiken/asynq"
 )
 

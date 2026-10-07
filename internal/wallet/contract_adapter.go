@@ -6,9 +6,9 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/stellar"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/stellar"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/stellar/go/txnbuild"
@@ -66,7 +66,7 @@ type ContractService interface {
 }
 
 // ContractWalletAdapter is the non-custodial WalletService implementation.
-// Fluxa never stores a secret key for these wallets: the spending limit,
+// Nexora never stores a secret key for these wallets: the spending limit,
 // time-lock and guardian recovery rules are enforced on-chain by the Soroban
 // contract, and signing is delegated through the stellar.Signer boundary.
 type ContractWalletAdapter struct {
@@ -177,7 +177,7 @@ func (a *ContractWalletAdapter) CreateWallet(ctx context.Context, ownerPublicKey
 
 // GetBalances returns the balances recorded for the contract address. A
 // Soroban contract holds tokens in contract storage rather than in a classic
-// account, so these come from Fluxa's own records rather than Horizon, and
+// account, so these come from Nexora's own records rather than Horizon, and
 // includeFX is not applied.
 func (a *ContractWalletAdapter) ListWallets(ctx context.Context, limit, offset int) ([]*domain.Wallet, error) {
 	return a.repo.List(ctx, limit, offset)

@@ -9,7 +9,7 @@ package compliance
 import (
 	"context"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/rs/zerolog"
 )
 

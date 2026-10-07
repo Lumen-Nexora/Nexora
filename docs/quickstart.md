@@ -1,14 +1,14 @@
-# Fluxa Quickstart
+# Nexora Quickstart
 
 This guide walks through the complete integration flow — from creating an account to receiving a webhook notification. Every step includes the exact `curl` command, the expected response, and what to watch out for.
 
-> **Prerequisites**: You need `curl` and `jq` installed. Run Fluxa locally using Docker or from source (see the main [README](../README.md)).
+> **Prerequisites**: You need `curl` and `jq` installed. Run Nexora locally using Docker or from source (see the main [README](../README.md)).
 
 ---
 
 ## Step 1: Register an account and get a JWT
 
-Create an account. Fluxa is multi-tenant — this creates a tenant (individual or organization) and returns a JWT for subsequent requests.
+Create an account. Nexora is multi-tenant — this creates a tenant (individual or organization) and returns a JWT for subsequent requests.
 
 ```bash
 curl -X POST http://localhost:3000/v1/auth/register \
@@ -99,7 +99,7 @@ Authorization: Bearer sk_test_abcdef1234567890abcdef1234567890
 
 ## Step 3: Create a sending wallet
 
-Create a Stellar wallet. Fluxa generates a keypair and stores the secret key encrypted with AES-256-GCM. The raw secret is never exposed.
+Create a Stellar wallet. Nexora generates a keypair and stores the secret key encrypted with AES-256-GCM. The raw secret is never exposed.
 
 ```bash
 curl -X POST http://localhost:3000/v1/wallets \
@@ -400,14 +400,14 @@ echo "Final status: $STATUS"
 
 ## Step 10: Register a webhook to receive `transfer.settled`
 
-Instead of polling, register a webhook endpoint that Fluxa will call when a transfer settles. The payload includes an HMAC-SHA256 signature for verification.
+Instead of polling, register a webhook endpoint that Nexora will call when a transfer settles. The payload includes an HMAC-SHA256 signature for verification.
 
 ```bash
 curl -X POST http://localhost:3000/v1/webhooks \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer sk_test_..." \
   -d '{
-    "url": "https://your-app.com/webhooks/fluxa",
+    "url": "https://your-app.com/webhooks/nexora",
     "events": [
       "transfer.settled",
       "transfer.failed"
@@ -419,7 +419,7 @@ curl -X POST http://localhost:3000/v1/webhooks \
 ```json
 {
   "id": "0193b0b4-1b33-7e9a-bcf6-2e2a0abb6d42",
-  "url": "https://your-app.com/webhooks/fluxa",
+  "url": "https://your-app.com/webhooks/nexora",
   "secret": "a1b2c3d4e5f67890a1b2c3d4e5f67890",
   "events": [
     "transfer.settled",
@@ -437,8 +437,8 @@ curl -X POST http://localhost:3000/v1/webhooks \
 Each webhook delivery includes a signature header:
 
 ```
-X-Fluxa-Signature: sha256=<HMAC-SHA256 hex>
-X-Fluxa-Event: transfer.settled
+X-Nexora-Signature: sha256=<HMAC-SHA256 hex>
+X-Nexora-Event: transfer.settled
 ```
 
 Verify using the secret:
@@ -485,6 +485,6 @@ curl -H "Authorization: Bearer sk_test_..." \
 
 ## Next steps
 
-- Import the [Postman collection](fluxa.postman_collection.json) to explore all endpoints interactively.
+- Import the [Postman collection](nexora.postman_collection.json) to explore all endpoints interactively.
 - Review the [Error Reference](errors.md) for a complete list of error codes and resolutions.
 - Set up both the **API** (`cmd/api`) and **Worker** (`cmd/worker`) processes for local development.

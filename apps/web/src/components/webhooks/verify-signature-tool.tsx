@@ -33,8 +33,8 @@ export function VerifySignatureTool() {
   const [error, setError] = useState<string | null>(null);
   const [copiedLang, setCopiedLang] = useState<string | null>(null);
 
-  const timestamp = extractHeader(rawHeaders, 'X-Fluxa-Timestamp');
-  const signature = extractHeader(rawHeaders, 'X-Fluxa-Signature');
+  const timestamp = extractHeader(rawHeaders, 'X-Nexora-Timestamp');
+  const signature = extractHeader(rawHeaders, 'X-Nexora-Signature');
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,7 +80,7 @@ export function VerifySignatureTool() {
               rows={4}
               value={rawHeaders}
               onChange={(e) => setRawHeaders(e.target.value)}
-              placeholder={'X-Fluxa-Signature: sha256=...\nX-Fluxa-Timestamp: 1700000000'}
+              placeholder={'X-Nexora-Signature: sha256=...\nX-Nexora-Timestamp: 1700000000'}
               className="font-mono text-xs"
             />
             <div className="flex gap-4 text-xs text-muted-foreground">

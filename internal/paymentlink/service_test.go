@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/fiat"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/fiat"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"github.com/shopspring/decimal"
 )
 

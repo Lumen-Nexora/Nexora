@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 // Sep24Client starts interactive deposits/withdrawals (SEP-24) against an

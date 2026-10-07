@@ -1,7 +1,7 @@
 {
-  "name": "@savitura/fluxa",
+  "name": "@lumen-nexora/nexora",
   "version": "1.0.0",
-  "description": "TypeScript SDK for the Fluxa payment API",
+  "description": "TypeScript SDK for the Nexora payment API",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
   "types": "dist/types/index.d.ts",
@@ -38,7 +38,7 @@
   },
   "license": "MIT",
   "keywords": [
-    "fluxa",
+    "nexora",
     "payments",
     "stellar",
     "usdc",

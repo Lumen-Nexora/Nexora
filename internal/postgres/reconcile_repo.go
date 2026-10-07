@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/reconcile"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/reconcile"
 	"github.com/shopspring/decimal"
 )
 

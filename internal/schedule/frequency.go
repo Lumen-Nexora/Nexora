@@ -3,7 +3,7 @@ package schedule
 import (
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 // AddInterval returns the next occurrence of t for the given frequency in the given timezone.

@@ -1,6 +1,6 @@
-# Contributing to Fluxa
+# Contributing to Nexora
 
-Fluxa uses [GrantFox](https://grantfox.xyz) to fund and coordinate open-source contributions. Contributors pick a funded issue, implement it, and submit a PR. One issue per contributor at a time.
+Nexora uses [GrantFox](https://grantfox.xyz) to fund and coordinate open-source contributions. Contributors pick a funded issue, implement it, and submit a PR. One issue per contributor at a time.
 
 ---
 
@@ -15,8 +15,8 @@ Fluxa uses [GrantFox](https://grantfox.xyz) to fund and coordinate open-source c
 ### Get running
 
 ```bash
-git clone https://github.com/Savitura/Fluxa.git
-cd Fluxa
+git clone https://github.com/Lumen-Nexora/Nexora.git
+cd Nexora
 go mod tidy
 cp .env.example .env
 # Fill in DATABASE_URL, REDIS_URL, MASTER_ENCRYPTION_KEY, STELLAR_* values
@@ -47,7 +47,7 @@ curl "https://friendbot.stellar.org?addr=<PUBLIC_KEY>"
 
 ## Picking Up an Issue
 
-1. Find an open, unassigned issue in [GitHub Issues](https://github.com/Savitura/Fluxa/issues)
+1. Find an open, unassigned issue in [GitHub Issues](https://github.com/Lumen-Nexora/Nexora/issues)
 2. Comment to claim it — wait for assignment before starting
 3. Fork and branch off `main`: `feat/issue-<number>-short-description`
 4. Stay current with `git rebase origin/main`
@@ -58,7 +58,7 @@ Read the full issue body before writing code. Every issue has an acceptance crit
 
 ## Codebase Orientation
 
-Fluxa is structured in `internal/` packages, each owning a slice of the domain:
+Nexora is structured in `internal/` packages, each owning a slice of the domain:
 
 ```
 internal/
@@ -106,7 +106,7 @@ The issues in this repo are written to be directly usable as prompts. Paste the 
 
 **3. Show it the pattern to follow**
 
-Fluxa has a consistent service/handler/repository pattern. Point the agent at the closest existing example:
+Nexora has a consistent service/handler/repository pattern. Point the agent at the closest existing example:
 
 ```
 The wallet package in internal/wallet/ is the reference implementation.

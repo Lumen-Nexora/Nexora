@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/stellar"
-	"github.com/fluxa/fluxa/internal/tenant"
-	"github.com/fluxa/fluxa/internal/transfer"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/stellar"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/transfer"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )

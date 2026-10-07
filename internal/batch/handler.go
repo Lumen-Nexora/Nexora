@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/api"
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/api"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/go-chi/chi/v5"
 	"github.com/shopspring/decimal"
 )

@@ -1,4 +1,4 @@
-# Fluxa webhook signature verification (Python).
+# Nexora webhook signature verification (Python).
 # No external dependencies — uses the `hmac` and `hashlib` standard library
 # modules only.
 
@@ -20,12 +20,12 @@ class VerifyResult:
 def verify_webhook_signature(
     secret: str, timestamp: str, body: str, signature: str
 ) -> VerifyResult:
-    """Verifies a Fluxa webhook delivery.
+    """Verifies a Nexora webhook delivery.
 
     secret:    the webhook endpoint's signing secret.
-    timestamp: value of the X-Fluxa-Timestamp header (Unix seconds, as a string).
+    timestamp: value of the X-Nexora-Timestamp header (Unix seconds, as a string).
     body:      the raw, unparsed request body exactly as received.
-    signature: value of the X-Fluxa-Signature header, e.g. "sha256=...".
+    signature: value of the X-Nexora-Signature header, e.g. "sha256=...".
     """
     try:
         timestamp_seconds = int(timestamp)
@@ -55,9 +55,9 @@ def verify_webhook_signature(
 # Usage:
 #   result = verify_webhook_signature(
 #       webhook_secret,
-#       request.headers["X-Fluxa-Timestamp"],
+#       request.headers["X-Nexora-Timestamp"],
 #       raw_body,  # must be the raw body bytes/string, not a re-serialized dict
-#       request.headers["X-Fluxa-Signature"],
+#       request.headers["X-Nexora-Signature"],
 #   )
 #   if not result.valid:
 #       return Response(status=400, body=result.reason)

@@ -2,14 +2,14 @@
 
 ## What they are, and why they matter
 
-Any client that calls a state-mutating Fluxa endpoint can lose the response to a
+Any client that calls a state-mutating Nexora endpoint can lose the response to a
 network error or timeout without knowing whether the request actually
 succeeded server-side. Retrying blindly risks double-processing — e.g. a
 second `POST /v1/transfers` that moves the same funds twice.
 
 An idempotency key breaks that ambiguity. The client generates a unique key
 once per _logical_ operation and sends it as the `X-Idempotency-Key` (or `Idempotency-Key`) header.
-Fluxa remembers the outcome of the first request under that key for 24 hours
+Nexora remembers the outcome of the first request under that key for 24 hours
 (configurable via `IDEMPOTENCY_TTL_HOURS`); any retry with the same key and the
 same request body gets back the exact same response, byte for byte, without the
 operation running again. This is the same model used by Stripe, Adyen, and other
@@ -66,7 +66,7 @@ When a client encounters a network partition, client-side timeout, deploy interr
 Clients can query any previously used idempotency key:
 
 ```bash
-curl -X GET https://api.fluxa.example/v1/idempotency/tx_order_987213 \
+curl -X GET https://api.nexora.example/v1/idempotency/tx_order_987213 \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -122,7 +122,7 @@ Clients can pass `?request_hash=<hash>` (or `X-Request-Hash` header) to verify t
 ## Example
 
 ```bash
-curl -X POST https://api.fluxa.example/v1/transfers \
+curl -X POST https://api.nexora.example/v1/transfers \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -H "X-Idempotency-Key: $(uuidgen)" \

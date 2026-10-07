@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/fluxa/fluxa/internal/api"
+	"github.com/Lumen-Nexora/Nexora/internal/api"
 	"github.com/go-chi/chi/v5"
 	"github.com/shopspring/decimal"
 )

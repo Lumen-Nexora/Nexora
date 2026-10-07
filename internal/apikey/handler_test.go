@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/apikey"
+	"github.com/Lumen-Nexora/Nexora/internal/apikey"
 )
 
 func TestAPIKeyHandlersUseStructuredErrors(t *testing.T) {

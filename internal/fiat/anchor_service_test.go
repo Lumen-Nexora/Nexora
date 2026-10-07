@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/crypto"
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/crypto"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/txnbuild"

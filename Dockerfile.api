@@ -1,5 +1,5 @@
-# Fluxa API server image (cmd/api).
-# Build:   docker build -f Dockerfile.api -t fluxa-api .
+# Nexora API server image (cmd/api).
+# Build:   docker build -f Dockerfile.api -t nexora-api .
 # Compose: docker compose up --build api
 
 # Build stage

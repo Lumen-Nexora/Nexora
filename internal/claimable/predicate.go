@@ -1,4 +1,4 @@
-// Package claimable implements Fluxa's claimable balance layer: creation
+// Package claimable implements Nexora's claimable balance layer: creation
 // (optionally reserve-sponsored), claim routing on behalf of custodied
 // claimants, and background expiry tracking.
 package claimable
@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/stellar/go/txnbuild"
 	"github.com/stellar/go/xdr"
 )
@@ -18,7 +18,7 @@ import (
 // overflow.
 const MaxPredicateDepth = 8
 
-// PredicateToXDR converts the declarative predicate Fluxa stores into the XDR
+// PredicateToXDR converts the declarative predicate Nexora stores into the XDR
 // form txnbuild puts on-chain.
 //
 // Stellar has no "after absolute time" arm — the only time arms are
@@ -185,11 +185,11 @@ func childrenFromXDR(children *[]xdr.ClaimPredicate, depth int) ([]domain.ClaimP
 
 // Satisfiable reports whether a predicate holds at now for a balance created at
 // createdAt. This is a local pre-flight check, not a substitute for Stellar's
-// own evaluation: it lets Fluxa reject an obviously-unsatisfiable claim before
+// own evaluation: it lets Nexora reject an obviously-unsatisfiable claim before
 // spending a Horizon round trip and a transaction fee.
 //
 // A relative predicate is measured from the balance's creation time, which is
-// the only anchor Fluxa has, and matches the reference "before N seconds since
+// the only anchor Nexora has, and matches the reference "before N seconds since
 // creation" reading. A nil predicate (or an unparseable one) fails closed.
 func Satisfiable(p *domain.ClaimPredicate, now, createdAt time.Time) bool {
 	return satisfiable(p, now, createdAt, 0)

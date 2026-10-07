@@ -6,7 +6,7 @@ Branch: `feat/issue-70-claimable-balances`
 
 Stellar's `CreateClaimableBalance` / `ClaimClaimableBalance` pair is a deferred
 payment primitive: funds are held by the network until a claimant satisfies a
-predicate. Fluxa had no abstraction for it, so an org building vesting
+predicate. Nexora had no abstraction for it, so an org building vesting
 schedules, conditional releases, or push payments to users without a wallet had
 to hand-write XDR. This adds the whole layer.
 
@@ -66,7 +66,7 @@ the existing asynq scheduler.
   migration's check constraint allows all four.
 - **Revocation resolves its claimant from the balance itself** rather than
   assuming the issuer account. It claims from the first claimant that is both
-  satisfiable and custodied by Fluxa, which is what an org's
+  satisfiable and custodied by Nexora, which is what an org's
   `not(before_absolute_time(expiry))` claimant is for. No extra column needed.
 - **No new coupling.** `internal/claimable` imports neither `internal/wallet`
   nor `internal/webhook`; both are reached through interfaces declared in the

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -294,9 +294,9 @@ func TestConfigHandler_RejectsSSRFURL(t *testing.T) {
 func TestConfigHandler_TestDeliverySendsSignedPing(t *testing.T) {
 	var gotSig, gotEvent, gotTenant string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotSig = r.Header.Get("X-Fluxa-Signature")
-		gotEvent = r.Header.Get("X-Fluxa-Event")
-		gotTenant = r.Header.Get("X-Fluxa-Tenant-ID")
+		gotSig = r.Header.Get("X-Nexora-Signature")
+		gotEvent = r.Header.Get("X-Nexora-Event")
+		gotTenant = r.Header.Get("X-Nexora-Tenant-ID")
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer ts.Close()
@@ -318,7 +318,7 @@ func TestConfigHandler_TestDeliverySendsSignedPing(t *testing.T) {
 		t.Fatal("test delivery must be signed")
 	}
 	if gotTenant != "tenant-1" {
-		t.Fatalf("X-Fluxa-Tenant-ID = %q, want tenant-1", gotTenant)
+		t.Fatalf("X-Nexora-Tenant-ID = %q, want tenant-1", gotTenant)
 	}
 	if gotEvent == "" {
 		t.Fatal("test delivery should carry an event header")

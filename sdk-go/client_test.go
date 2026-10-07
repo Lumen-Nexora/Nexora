@@ -1,4 +1,4 @@
-package fluxa
+package nexora
 
 import (
 	"context"
@@ -30,14 +30,14 @@ func TestClientErrorEnvelope(t *testing.T) {
 
 	var result map[string]any
 	err := client.request(context.Background(), http.MethodGet, "/test", nil, nil, &result)
-	var fluxaErr *FluxaError
-	if !errors.As(err, &fluxaErr) {
-		t.Fatalf("request error = %T, want *FluxaError", err)
+	var nexoraErr *NexoraError
+	if !errors.As(err, &nexoraErr) {
+		t.Fatalf("request error = %T, want *NexoraError", err)
 	}
-	if fluxaErr.Code != "BAD_REQUEST" || fluxaErr.Message != "invalid amount" || fluxaErr.HTTPStatus != 400 {
-		t.Fatalf("unexpected error fields: %+v", fluxaErr)
+	if nexoraErr.Code != "BAD_REQUEST" || nexoraErr.Message != "invalid amount" || nexoraErr.HTTPStatus != 400 {
+		t.Fatalf("unexpected error fields: %+v", nexoraErr)
 	}
-	if fluxaErr.Details == nil {
+	if nexoraErr.Details == nil {
 		t.Fatal("validation_errors were not retained in Details")
 	}
 }
@@ -86,8 +86,8 @@ func TestResourceSuccessAndError(t *testing.T) {
 			}
 			errorMode = true
 			err := check.call()
-			var fluxaErr *FluxaError
-			if !errors.As(err, &fluxaErr) || fluxaErr.Code != "BAD_REQUEST" {
+			var nexoraErr *NexoraError
+			if !errors.As(err, &nexoraErr) || nexoraErr.Code != "BAD_REQUEST" {
 				t.Fatalf("error response = %v, want typed BAD_REQUEST", err)
 			}
 		})

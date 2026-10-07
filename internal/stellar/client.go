@@ -19,7 +19,7 @@ import (
 // context is already done.
 const defaultHorizonTimeout = 10 * time.Second
 
-// Client is the interface Fluxa uses to interact with Stellar/Horizon.
+// Client is the interface Nexora uses to interact with Stellar/Horizon.
 type Client interface {
 	LoadAccount(accountID string) (horizon.Account, error)
 	SubmitTransaction(tx *txnbuild.Transaction) (horizon.Transaction, error)

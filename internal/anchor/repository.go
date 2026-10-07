@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
-// Repository persists anchors and the transactions Fluxa initiates against
+// Repository persists anchors and the transactions Nexora initiates against
 // them.
 type Repository interface {
 	CreateAnchor(ctx context.Context, a *domain.Anchor) error

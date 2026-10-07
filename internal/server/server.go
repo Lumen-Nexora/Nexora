@@ -7,35 +7,35 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/anchor"
-	"github.com/fluxa/fluxa/internal/api"
-	"github.com/fluxa/fluxa/internal/apikey"
-	"github.com/fluxa/fluxa/internal/audit"
-	"github.com/fluxa/fluxa/internal/auth"
-	"github.com/fluxa/fluxa/internal/batch"
-	"github.com/fluxa/fluxa/internal/beneficiary"
-	"github.com/fluxa/fluxa/internal/claimable"
-	"github.com/fluxa/fluxa/internal/compliance"
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/fees"
-	"github.com/fluxa/fluxa/internal/fiat"
-	"github.com/fluxa/fluxa/internal/fx"
-	fluxahealth "github.com/fluxa/fluxa/internal/health"
-	"github.com/fluxa/fluxa/internal/org"
-	"github.com/fluxa/fluxa/internal/paymentlink"
-	"github.com/fluxa/fluxa/internal/postgres"
-	"github.com/fluxa/fluxa/internal/reconcile"
-	"github.com/fluxa/fluxa/internal/refund"
-	"github.com/fluxa/fluxa/internal/schedule"
-	"github.com/fluxa/fluxa/internal/server/idempotency"
-	"github.com/fluxa/fluxa/internal/status"
-	"github.com/fluxa/fluxa/internal/tenantdata"
-	"github.com/fluxa/fluxa/internal/transfer"
-	"github.com/fluxa/fluxa/internal/transferapproval"
-	"github.com/fluxa/fluxa/internal/treasury"
-	"github.com/fluxa/fluxa/internal/wallet"
-	"github.com/fluxa/fluxa/internal/wallet_balance_alert"
-	"github.com/fluxa/fluxa/internal/webhook"
+	"github.com/Lumen-Nexora/Nexora/internal/anchor"
+	"github.com/Lumen-Nexora/Nexora/internal/api"
+	"github.com/Lumen-Nexora/Nexora/internal/apikey"
+	"github.com/Lumen-Nexora/Nexora/internal/audit"
+	"github.com/Lumen-Nexora/Nexora/internal/auth"
+	"github.com/Lumen-Nexora/Nexora/internal/batch"
+	"github.com/Lumen-Nexora/Nexora/internal/beneficiary"
+	"github.com/Lumen-Nexora/Nexora/internal/claimable"
+	"github.com/Lumen-Nexora/Nexora/internal/compliance"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/fees"
+	"github.com/Lumen-Nexora/Nexora/internal/fiat"
+	"github.com/Lumen-Nexora/Nexora/internal/fx"
+	nexorahealth "github.com/Lumen-Nexora/Nexora/internal/health"
+	"github.com/Lumen-Nexora/Nexora/internal/org"
+	"github.com/Lumen-Nexora/Nexora/internal/paymentlink"
+	"github.com/Lumen-Nexora/Nexora/internal/postgres"
+	"github.com/Lumen-Nexora/Nexora/internal/reconcile"
+	"github.com/Lumen-Nexora/Nexora/internal/refund"
+	"github.com/Lumen-Nexora/Nexora/internal/schedule"
+	"github.com/Lumen-Nexora/Nexora/internal/server/idempotency"
+	"github.com/Lumen-Nexora/Nexora/internal/status"
+	"github.com/Lumen-Nexora/Nexora/internal/tenantdata"
+	"github.com/Lumen-Nexora/Nexora/internal/transfer"
+	"github.com/Lumen-Nexora/Nexora/internal/transferapproval"
+	"github.com/Lumen-Nexora/Nexora/internal/treasury"
+	"github.com/Lumen-Nexora/Nexora/internal/wallet"
+	"github.com/Lumen-Nexora/Nexora/internal/wallet_balance_alert"
+	"github.com/Lumen-Nexora/Nexora/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -134,15 +134,15 @@ func New(
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
 
-	componentProbes := make(map[string]fluxahealth.Probe, len(healthChecks))
+	componentProbes := make(map[string]nexorahealth.Probe, len(healthChecks))
 	for name, check := range healthChecks {
 		probe := check
 		componentProbes[name] = func(ctx context.Context) (interface{}, error) { return nil, probe(ctx) }
 	}
-	healthService := fluxahealth.New(componentProbes)
+	healthService := nexorahealth.New(componentProbes)
 	r.Get("/health", healthService.Handler())
 	r.Get("/health/ready", healthService.ReadyHandler())
-	r.Get("/health/live", fluxahealth.LiveHandler())
+	r.Get("/health/live", nexorahealth.LiveHandler())
 	r.Get("/metrics", MetricsHandler)
 
 	// Platform status is intentionally public and must remain outside tenant
@@ -166,7 +166,7 @@ func New(
 		r.With(webhook.VerifyRateLimit()).Post("/webhooks/verify", webhookHandler.VerifySignature)
 
 		// Fiat provider callbacks are intentionally public: a real payment
-		// provider (Flutterwave, Yellow Card) cannot present a Fluxa API key.
+		// provider (Flutterwave, Yellow Card) cannot present a Nexora API key.
 		// Access control is HMAC signature verification inside the handler.
 		r.Route("/webhooks/fiat", fiatHandler.WebhookRoutes())
 

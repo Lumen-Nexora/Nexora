@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/auth"
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/postgres"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/auth"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/postgres"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 )

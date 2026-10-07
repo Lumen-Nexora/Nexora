@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 func TestSep24Client_GetInteractiveUrl_ReturnsValidHTTPSUrl(t *testing.T) {

@@ -3,7 +3,7 @@ package stellar
 import (
 	"context"
 
-	"github.com/fluxa/fluxa/internal/tracing"
+	"github.com/Lumen-Nexora/Nexora/internal/tracing"
 	"github.com/stellar/go/protocols/horizon"
 	"github.com/stellar/go/protocols/horizon/operations"
 	"github.com/stellar/go/txnbuild"

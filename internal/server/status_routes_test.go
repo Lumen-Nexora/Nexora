@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/status"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/status"
 	"github.com/google/uuid"
 )
 

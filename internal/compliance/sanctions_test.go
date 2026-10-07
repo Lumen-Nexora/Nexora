@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 const (

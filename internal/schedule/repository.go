@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 // Repository manages schedules and their execution run records.

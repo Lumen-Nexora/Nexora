@@ -35,7 +35,7 @@ export default function ApiKeysPage() {
   );
   const [label, setLabel] = useState('');
   const [mode, setMode] = useState<'live' | 'test'>(() =>
-    typeof window !== 'undefined' && window.localStorage.getItem('fluxa_mode') === 'test'
+    typeof window !== 'undefined' && window.localStorage.getItem('nexora_mode') === 'test'
       ? 'test'
       : 'live',
   );

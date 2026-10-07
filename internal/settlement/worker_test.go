@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/queue"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/queue"
 	"github.com/hibiken/asynq"
 )
 

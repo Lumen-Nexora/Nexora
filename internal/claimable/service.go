@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/stellar"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/stellar"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"github.com/rs/zerolog/log"
 	"github.com/shopspring/decimal"
 	"github.com/stellar/go/protocols/horizon"
@@ -21,14 +21,14 @@ import (
 // the creator, or by the sponsor when the creation is sponsored.
 var EntryReserve = decimal.RequireFromString("0.5")
 
-// WalletResolver looks up Fluxa-custodied wallets. It is declared here, and
+// WalletResolver looks up Nexora-custodied wallets. It is declared here, and
 // exchanges only plain values, so this package does not depend on
 // internal/wallet.
 type WalletResolver interface {
 	GetByID(ctx context.Context, walletID string) (*domain.SourceWallet, error)
-	// GetByPublicKey resolves a Fluxa-custodied wallet from its Stellar account
+	// GetByPublicKey resolves a Nexora-custodied wallet from its Stellar account
 	// ID, which is how a claimant or sponsor named by public key is turned into
-	// something Fluxa can sign for.
+	// something Nexora can sign for.
 	GetByPublicKey(ctx context.Context, publicKey string) (*domain.SourceWallet, error)
 }
 
@@ -52,7 +52,7 @@ type CreateInput struct {
 	SourceWalletID string
 
 	// SponsorAccount is an optional Stellar account that pays the entry reserve.
-	// It must be a wallet Fluxa custodies, because sponsoring requires the
+	// It must be a wallet Nexora custodies, because sponsoring requires the
 	// sponsor's signature. When set, the creation is wrapped in
 	// Begin/EndSponsoringFutureReserves.
 	SponsorAccount string
@@ -102,7 +102,7 @@ type ExpiryReport struct {
 	Revoked int
 }
 
-// Service is Fluxa's claimable balance management layer.
+// Service is Nexora's claimable balance management layer.
 type Service interface {
 	Create(ctx context.Context, in CreateInput) (*CreateResult, error)
 	List(ctx context.Context, f domain.ClaimableFilter) ([]*domain.ClaimableBalance, error)
@@ -160,7 +160,7 @@ func (s *service) Create(ctx context.Context, in CreateInput) (*CreateResult, er
 		return nil, err
 	}
 
-	// The sponsor has to be signable, so a sponsor account that Fluxa does not
+	// The sponsor has to be signable, so a sponsor account that Nexora does not
 	// custody is rejected up front rather than at signature time.
 	var sponsorWallet *SourceWallet
 	if in.SponsorAccount != "" {
@@ -442,7 +442,7 @@ func (s *service) ProcessExpired(ctx context.Context) (*ExpiryReport, error) {
 }
 
 // revoke claims an expired balance back on behalf of the first claimant that
-// is both currently satisfiable and custodied by Fluxa. Report whether the
+// is both currently satisfiable and custodied by Nexora. Report whether the
 // balance was revoked, plus any error worth logging.
 func (s *service) revoke(ctx context.Context, balance *domain.ClaimableBalance, now time.Time) (bool, error) {
 	for i := range balance.Claimants {

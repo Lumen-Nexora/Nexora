@@ -90,7 +90,7 @@ func (p *CoinGeckoProvider) fetchPrices(ctx context.Context) (map[string]decimal
 		return nil, fmt.Errorf("oracle request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "fluxa-fx-oracle/1.0")
+	req.Header.Set("User-Agent", "nexora-fx-oracle/1.0")
 
 	resp, err := p.client.Do(req)
 	if err != nil {

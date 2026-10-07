@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/claimable"
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/claimable"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/stellar/go/xdr"
 )
 

@@ -23,7 +23,7 @@ const (
 	AnchorTxTypeWithdrawal = "withdrawal"
 )
 
-// AnchorTransaction is Fluxa's own ledger record of a deposit/withdrawal
+// AnchorTransaction is Nexora's own ledger record of a deposit/withdrawal
 // initiated against a registered anchor. Status mirrors the anchor's SEP-6/24
 // transaction status verbatim (e.g. "pending_user_transfer_start", "completed").
 type AnchorTransaction struct {

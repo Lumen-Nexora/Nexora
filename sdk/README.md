@@ -1,11 +1,11 @@
-# @savitura/fluxa
+# @lumen-nexora/nexora
 
-TypeScript SDK for the [Fluxa](https://fluxa.io) payment API. Zero runtime dependencies — uses native `fetch`.
+TypeScript SDK for the [Nexora](https://nexora.io) payment API. Zero runtime dependencies — uses native `fetch`.
 
 ## Install
 
 ```bash
-npm install @savitura/fluxa
+npm install @lumen-nexora/nexora
 ```
 
 Requires Node.js >= 18.
@@ -13,9 +13,9 @@ Requires Node.js >= 18.
 ## Quick Start
 
 ```ts
-import { FluxaClient } from "@savitura/fluxa";
+import { NexoraClient } from "@lumen-nexora/nexora";
 
-const client = new FluxaClient({ apiKey: "sk_live_..." });
+const client = new NexoraClient({ apiKey: "sk_live_..." });
 
 // Create a wallet
 const wallet = await client.wallets.create();
@@ -36,9 +36,9 @@ const tx = await client.transfers.create({
 ## Configuration
 
 ```ts
-new FluxaClient({
+new NexoraClient({
   apiKey: "sk_live_...",         // Required
-  baseUrl: "https://api.fluxa.io", // Default
+  baseUrl: "https://api.nexora.io", // Default
   timeout: 30000,              // 30s default
   maxRetries: 0,               // Retries are opt-in
   retryDelay: 500,             // Base delay in ms
@@ -47,7 +47,7 @@ new FluxaClient({
 
 ## Retries and Idempotency
 
-Fluxa requires an `Idempotency-Key` on financial mutations (wallet creation, transfers,
+Nexora requires an `Idempotency-Key` on financial mutations (wallet creation, transfers,
 batches, FX conversions, fiat deposits/withdrawals, schedules, payment links,
 refunds, claimable balances, and trustlines). The SDK enforces this as follows:
 
@@ -243,7 +243,7 @@ await client.schedules.delete(schedule.id);
 ```ts
 // Register
 const endpoint = await client.webhooks.create({
-  url: "https://your-app.com/webhooks/fluxa",
+  url: "https://your-app.com/webhooks/nexora",
   events: ["transfer.settled", "wallet.funded"],
 });
 console.log(endpoint.secret); // Store for signature verification
@@ -318,7 +318,7 @@ const withdrawal = await client.fiat.withdraw(
 
 ## Cursor Pagination & Streaming
 
-Fluxa provides reusable cursor-pagination primitives and async iterators to simplify traversing large collections without manual cursor tracking.
+Nexora provides reusable cursor-pagination primitives and async iterators to simplify traversing large collections without manual cursor tracking.
 
 ### Streaming with Async Iterators
 Traverse items seamlessly using `for await...of`. Breaking out of the loop lazily halts any subsequent HTTP page requests:
@@ -354,13 +354,13 @@ If a malformed server response sends the same cursor token repeatedly, the SDK d
 
 ```ts
 import {
-  FluxaError,
+  NexoraError,
   AuthenticationError,
   NotFoundError,
   ValidationError,
   RateLimitError,
   RepeatedCursorError,
-} from "@savitura/fluxa";
+} from "@lumen-nexora/nexora";
 
 try {
   await client.transfers.get("nonexistent");
@@ -376,7 +376,7 @@ try {
   } else if (err instanceof PermissionError) {
     // 403 INSUFFICIENT_SCOPE: the key is valid but lacks a scope
     console.log("API key is missing scope:", err.requiredScope);
-  } else if (err instanceof FluxaError) {
+  } else if (err instanceof NexoraError) {
     console.log(`API error ${err.statusCode}: [${err.code}] ${err.message}`);
   }
 }

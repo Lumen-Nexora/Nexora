@@ -7,7 +7,7 @@ import {
   PermissionError,
   RateLimitError,
   ValidationError,
-  FluxaError,
+  NexoraError,
 } from './errors';
 
 // Helpers to build the envelope the API actually returns
@@ -87,9 +87,9 @@ describe('classifyError', () => {
     expect(err.requestId).toBe('req-sdk-test');
   });
 
-  it('returns a plain FluxaError with code and message on 422', () => {
+  it('returns a plain NexoraError with code and message on 422', () => {
     const err = classifyError(422, envelope('QUOTE_EXPIRED', 'quote has expired'));
-    expect(err).toBeInstanceOf(FluxaError);
+    expect(err).toBeInstanceOf(NexoraError);
     expect(err.message).toBe('quote has expired');
     expect(err.code).toBe('QUOTE_EXPIRED');
     expect(err.statusCode).toBe(422);
@@ -112,13 +112,13 @@ describe('classifyError', () => {
       envelope('INSUFFICIENT_SCOPE', 'API key does not have the required scope: transfers:write'),
     );
     expect(err).toBeInstanceOf(PermissionError);
-    expect(err).toBeInstanceOf(FluxaError);
+    expect(err).toBeInstanceOf(NexoraError);
     expect(err.code).toBe('INSUFFICIENT_SCOPE');
     expect(err.statusCode).toBe(403);
     expect((err as PermissionError).requiredScope).toBe('transfers:write');
   });
 
-  it('keeps other 403s as a plain FluxaError', () => {
+  it('keeps other 403s as a plain NexoraError', () => {
     const err = classifyError(403, envelope('TRANSFER_BLOCKED_SANCTIONS', 'transfer blocked'));
     expect(err).not.toBeInstanceOf(PermissionError);
     expect(err.statusCode).toBe(403);

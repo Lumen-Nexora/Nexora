@@ -1,4 +1,4 @@
-# Fluxa webhook signature verification (Ruby).
+# Nexora webhook signature verification (Ruby).
 # No external dependencies — uses the `openssl` standard library only.
 
 require "openssl"
@@ -22,12 +22,12 @@ def constant_time_compare(a, b)
   result.zero?
 end
 
-# Verifies a Fluxa webhook delivery.
+# Verifies a Nexora webhook delivery.
 #
 # secret:    the webhook endpoint's signing secret.
-# timestamp: value of the X-Fluxa-Timestamp header (Unix seconds, as a string).
+# timestamp: value of the X-Nexora-Timestamp header (Unix seconds, as a string).
 # body:      the raw, unparsed request body exactly as received.
-# signature: value of the X-Fluxa-Signature header, e.g. "sha256=...".
+# signature: value of the X-Nexora-Signature header, e.g. "sha256=...".
 def verify_webhook_signature(secret, timestamp, body, signature)
   timestamp_seconds = Integer(timestamp, exception: false)
   return VerifyResult.new(false, "invalid_timestamp") if timestamp_seconds.nil?
@@ -49,8 +49,8 @@ end
 # Usage:
 #   result = verify_webhook_signature(
 #     webhook_secret,
-#     request.headers["X-Fluxa-Timestamp"],
+#     request.headers["X-Nexora-Timestamp"],
 #     raw_body, # must be the raw body string, not a re-serialized hash
-#     request.headers["X-Fluxa-Signature"],
+#     request.headers["X-Nexora-Signature"],
 #   )
 #   halt 400, result.reason unless result.valid

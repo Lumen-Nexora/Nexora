@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/fluxa/fluxa/docs"
+	"github.com/Lumen-Nexora/Nexora/docs"
 )
 
 // DocsRouter is the minimal interface required to register documentation routes.
@@ -32,7 +32,7 @@ func ServeRoot(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"name":        "Fluxa API",
+		"name":        "Nexora API",
 		"version":     "1.0.0",
 		"description": "Multi-currency digital asset platform built on Stellar",
 		"docs_url":    "/docs",
@@ -92,7 +92,7 @@ const swaggerHTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Fluxa API Documentation</title>
+  <title>Nexora API Documentation</title>
   <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css">
   <link rel="icon" type="image/png" href="https://unpkg.com/swagger-ui-dist@5/favicon-32x32.png" sizes="32x32">
   <style>

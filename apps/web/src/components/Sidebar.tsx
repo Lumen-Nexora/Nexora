@@ -53,7 +53,7 @@ export default function Sidebar() {
           <span className="text-sm font-bold">F</span>
         </div>
         <div className="flex items-baseline gap-2">
-          <span className="text-lg font-semibold tracking-tight text-foreground">Fluxa</span>
+          <span className="text-lg font-semibold tracking-tight text-foreground">Nexora</span>
           <span className="rounded border border-border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             Tenant
           </span>

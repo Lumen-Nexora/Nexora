@@ -9,10 +9,10 @@ import {
   IterationOptions
 } from '../types/pagination';
 import { iterate, listAll, buildPaginationParams } from '../pagination';
-import { FluxaClient } from '../client';
+import { NexoraClient } from '../client';
 
 export class TransfersResource {
-  constructor(private client: FluxaClient) {}
+  constructor(private client: NexoraClient) {}
 
   async list(
     filter?: TransfersFilter,

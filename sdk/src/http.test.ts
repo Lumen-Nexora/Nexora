@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { FluxaClient } from './client';
-import { FluxaError } from './errors';
+import { NexoraClient } from './client';
+import { NexoraError } from './errors';
 import { HttpClient } from './http';
 
 interface ConformanceCase {
@@ -65,7 +65,7 @@ describe.each(suite.cases)('shared conformance: $name', (testCase) => {
 
     expect(calls).toBe(testCase.expected_requests);
     expect(Boolean(error)).toBe(testCase.expected_error ?? false);
-    if (testCase.expected_error) expect(error).toBeInstanceOf(FluxaError);
+    if (testCase.expected_error) expect(error).toBeInstanceOf(NexoraError);
     if (testCase.key_mode === 'generated') {
       expect(keys[0]).toBeTruthy();
       expect(new Set(keys).size).toBe(1);
@@ -77,10 +77,10 @@ describe.each(suite.cases)('shared conformance: $name', (testCase) => {
   });
 });
 
-describe('FluxaClient request safety', () => {
+describe('NexoraClient request safety', () => {
   it('defaults to no retries', () => {
-    const client = new FluxaClient({ apiKey: 'test-key' });
-    expect(client).toBeInstanceOf(FluxaClient);
+    const client = new NexoraClient({ apiKey: 'test-key' });
+    expect(client).toBeInstanceOf(NexoraClient);
   });
 
   it('preserves the caller idempotency key on resource methods', async () => {
@@ -92,7 +92,7 @@ describe('FluxaClient request safety', () => {
         return new Response('{}', { status: 202, headers: { 'content-type': 'application/json' } });
       }),
     );
-    const client = new FluxaClient({ apiKey: 'test-key' });
+    const client = new NexoraClient({ apiKey: 'test-key' });
     await client.transfers.create(
       { from_wallet_id: 'from', to_wallet_id: 'to', asset: 'USDC', amount: '1' },
       { idempotencyKey: 'caller-key' },
@@ -111,7 +111,7 @@ describe('FluxaClient request safety', () => {
         return new Response('{}', { status: 202, headers: { 'content-type': 'application/json' } });
       }),
     );
-    const client = new FluxaClient({ apiKey: 'test-key' });
+    const client = new NexoraClient({ apiKey: 'test-key' });
     await client.wallets.createTrustline('wallet-1', {
       asset_code: 'USDC',
       asset_issuer: 'issuer-key',

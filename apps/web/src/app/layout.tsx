@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Fluxa Tenant',
-  description: 'Fluxa payment infrastructure control plane',
+  title: 'Nexora Tenant',
+  description: 'Nexora payment infrastructure control plane',
 };
 
 export default function RootLayout({

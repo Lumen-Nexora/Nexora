@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	fluxacrypto "github.com/fluxa/fluxa/internal/crypto"
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/queue"
-	"github.com/fluxa/fluxa/internal/tenant"
-	"github.com/fluxa/fluxa/internal/tracing"
+	nexoracrypto "github.com/Lumen-Nexora/Nexora/internal/crypto"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/queue"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/tracing"
 	"github.com/google/uuid"
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
@@ -493,8 +493,8 @@ func (s *service) Deliver(ctx context.Context, deliveryID string) error {
 		return s.handleDeliveryFailure(ctx, deliv, ep, err.Error(), nil, nil, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Fluxa-Signature", sig)
-	req.Header.Set("X-Fluxa-Timestamp", timestamp)
+	req.Header.Set("X-Nexora-Signature", sig)
+	req.Header.Set("X-Nexora-Timestamp", timestamp)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -711,7 +711,7 @@ func (s *service) MigrateLegacySigningSecrets(ctx context.Context) error {
 }
 
 func (s *service) encryptSecret(secret string) (string, error) {
-	ciphertext, err := fluxacrypto.Encrypt([]byte(secret), s.encryptionKey)
+	ciphertext, err := nexoracrypto.Encrypt([]byte(secret), s.encryptionKey)
 	if err != nil {
 		return "", fmt.Errorf("encrypt webhook signing secret")
 	}
@@ -722,7 +722,7 @@ func (s *service) decryptSecret(stored string) (string, error) {
 	if !strings.HasPrefix(stored, "v1::") {
 		return stored, nil
 	}
-	plaintext, err := fluxacrypto.Decrypt([]byte(stored), s.encryptionKey)
+	plaintext, err := nexoracrypto.Decrypt([]byte(stored), s.encryptionKey)
 	if err != nil {
 		return "", fmt.Errorf("decrypt webhook signing secret")
 	}
@@ -1160,12 +1160,12 @@ func (s *service) attemptConfigDelivery(ctx context.Context, config *domain.Tena
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Fluxa-Signature", signBody(config.Secret, delivery.Payload))
+	req.Header.Set("X-Nexora-Signature", signBody(config.Secret, delivery.Payload))
 	if delivery.SigningKeyID != "" {
-		req.Header.Set("X-Fluxa-Key-ID", delivery.SigningKeyID)
+		req.Header.Set("X-Nexora-Key-ID", delivery.SigningKeyID)
 	}
-	req.Header.Set("X-Fluxa-Event", string(delivery.EventType))
-	req.Header.Set("X-Fluxa-Tenant-ID", delivery.TenantID)
+	req.Header.Set("X-Nexora-Event", string(delivery.EventType))
+	req.Header.Set("X-Nexora-Tenant-ID", delivery.TenantID)
 
 	resp, err := s.client.Do(req)
 	if err != nil {

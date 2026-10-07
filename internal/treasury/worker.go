@@ -3,8 +3,8 @@ package treasury
 import (
 	"context"
 
-	"github.com/fluxa/fluxa/internal/queue"
-	"github.com/fluxa/fluxa/internal/tracing"
+	"github.com/Lumen-Nexora/Nexora/internal/queue"
+	"github.com/Lumen-Nexora/Nexora/internal/tracing"
 	"github.com/hibiken/asynq"
 	"github.com/shopspring/decimal"
 )

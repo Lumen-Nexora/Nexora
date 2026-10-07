@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/postgres"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/postgres"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
@@ -26,7 +26,7 @@ func startPostgres(t *testing.T) string {
 		}
 		t.Skip("docker is not available; skipping ephemeral-postgres migration test")
 	}
-	cmd := exec.Command("docker", "run", "--rm", "-d", "-e", "POSTGRES_PASSWORD=fluxa", "-P", "postgres:15-alpine")
+	cmd := exec.Command("docker", "run", "--rm", "-d", "-e", "POSTGRES_PASSWORD=nexora", "-P", "postgres:15-alpine")
 	out, err := cmd.Output()
 	if err != nil {
 		if os.Getenv("MIGRATION_TEST_REQUIRED") == "1" {
@@ -57,7 +57,7 @@ func startPostgres(t *testing.T) string {
 		t.Fatalf("could not determine bound port for postgres container")
 	}
 
-	dbURL := fmt.Sprintf("postgres://postgres:fluxa@localhost:%s/postgres?sslmode=disable", port)
+	dbURL := fmt.Sprintf("postgres://postgres:nexora@localhost:%s/postgres?sslmode=disable", port)
 
 	var ready bool
 	for i := 0; i < 20; i++ {

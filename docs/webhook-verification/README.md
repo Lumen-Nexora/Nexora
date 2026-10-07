@@ -2,11 +2,11 @@
 
 Endpoint-scoped deliveries include two headers:
 
-- `X-Fluxa-Signature` — `sha256=<hex HMAC-SHA256>`
-- `X-Fluxa-Timestamp` — Unix seconds at delivery time
+- `X-Nexora-Signature` — `sha256=<hex HMAC-SHA256>`
+- `X-Nexora-Timestamp` — Unix seconds at delivery time
 
 Tenant-config deliveries use an HMAC of the raw body (without a timestamp
-prefix) and include `X-Fluxa-Key-ID`, which identifies the secret version used
+prefix) and include `X-Nexora-Key-ID`, which identifies the secret version used
 to sign that delivery. Keep each rotated secret available while its metadata
 status is `overlapping`; the inspection endpoint returns version metadata only,
 while `POST /v1/webhooks/secret/rotate` discloses the new plaintext once.
@@ -15,15 +15,15 @@ default) and requires an `Idempotency-Key` header.
 
 ## Verification algorithm
 
-1. Reject the delivery if `|now - X-Fluxa-Timestamp| >= 300` (5 minutes) — this
+1. Reject the delivery if `|now - X-Nexora-Timestamp| >= 300` (5 minutes) — this
    stops a captured payload from being replayed later.
-2. Build `signed_payload = X-Fluxa-Timestamp + "." + raw_body` — the **raw**
+2. Build `signed_payload = X-Nexora-Timestamp + "." + raw_body` — the **raw**
    request body, exactly as received, not a re-serialized/re-parsed copy
    (re-serializing can reorder keys or change whitespace, which changes the
    bytes and breaks the signature).
 3. Compute `expected = HMAC-SHA256(signed_payload, webhook_secret)`, hex
    encoded, prefixed `sha256=`.
-4. Compare `expected` to `X-Fluxa-Signature` using a **constant-time**
+4. Compare `expected` to `X-Nexora-Signature` using a **constant-time**
    comparison — never `==`/`.equal?`/`===` on the raw strings. A naive
    comparison's runtime leaks how many leading bytes matched, which is
    enough for an attacker to forge a valid signature one byte at a time.

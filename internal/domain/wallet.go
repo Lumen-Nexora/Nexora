@@ -6,7 +6,7 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// CustodyType distinguishes custodial wallets (Fluxa holds the encrypted
+// CustodyType distinguishes custodial wallets (Nexora holds the encrypted
 // secret) from contract wallets (a Soroban contract holds the funds and
 // enforces spending policy on-chain).
 type CustodyType string

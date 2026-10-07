@@ -20,12 +20,12 @@ from .resources import (
 )
 
 
-class FluxaClient:
+class NexoraClient:
     def __init__(
         self,
         api_key: str,
         *,
-        base_url: str = "https://api.fluxa.io",
+        base_url: str = "https://api.nexora.io",
         timeout: float = 30.0,
         max_retries: int = 0,
         retry_delay: float = 0.5,
@@ -51,7 +51,7 @@ class FluxaClient:
     async def aclose(self) -> None:
         await self._http.close()
 
-    async def __aenter__(self) -> FluxaClient:
+    async def __aenter__(self) -> NexoraClient:
         return self
 
     async def __aexit__(self, *_: Any) -> None:

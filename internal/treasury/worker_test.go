@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/treasury"
+	"github.com/Lumen-Nexora/Nexora/internal/treasury"
 	"github.com/hibiken/asynq"
 	"github.com/shopspring/decimal"
 )

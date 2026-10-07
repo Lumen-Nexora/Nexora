@@ -1,7 +1,7 @@
 package fx
 
 import (
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 // RateResponse is an alias for domain.RateResponse so it lives in a package

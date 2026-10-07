@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 // SanctionsReader is the read side of the sanctions list, split out because

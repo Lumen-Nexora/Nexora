@@ -72,7 +72,7 @@ func Init(ctx context.Context, cfg Config) (Shutdown, error) {
 
 	serviceName := cfg.ServiceName
 	if serviceName == "" {
-		serviceName = "fluxa"
+		serviceName = "nexora"
 	}
 	res, err := resource.New(ctx, resource.WithAttributes(attribute.String("service.name", serviceName)))
 	if err != nil {
@@ -108,7 +108,7 @@ func HTTPMiddleware(next http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		parent := otel.GetTextMapPropagator().Extract(r.Context(), propagation.HeaderCarrier(r.Header))
-		ctx, span := otel.Tracer("fluxa/http").Start(
+		ctx, span := otel.Tracer("nexora/http").Start(
 			parent,
 			r.Method+" "+r.URL.Path,
 			trace.WithSpanKind(trace.SpanKindServer),
@@ -132,7 +132,7 @@ func Start(ctx context.Context, name string, options ...trace.SpanStartOption) (
 	if !Enabled() {
 		return ctx, trace.SpanFromContext(ctx)
 	}
-	return otel.Tracer("fluxa").Start(ctx, name, options...)
+	return otel.Tracer("nexora").Start(ctx, name, options...)
 }
 
 func StartConsumer(ctx context.Context, name string) (context.Context, trace.Span) {

@@ -18,7 +18,7 @@ const (
 	sorobanTxTimeout  = 300
 )
 
-// NetworkPassphraseFor maps a Fluxa network name onto its Stellar passphrase.
+// NetworkPassphraseFor maps a Nexora network name onto its Stellar passphrase.
 func NetworkPassphraseFor(stellarNetwork string) string {
 	if stellarNetwork == "mainnet" || stellarNetwork == "public" {
 		return network.PublicNetworkPassphrase
@@ -26,7 +26,7 @@ func NetworkPassphraseFor(stellarNetwork string) string {
 	return network.TestNetworkPassphrase
 }
 
-// SorobanClient is the interface Fluxa uses to talk to a Soroban RPC node.
+// SorobanClient is the interface Nexora uses to talk to a Soroban RPC node.
 // Contract invocations differ from classic Stellar operations: every call must
 // be simulated first to discover its ledger footprint, authorization entries
 // and resource fee before it can be signed and submitted.

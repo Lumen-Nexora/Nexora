@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/fluxa/fluxa/internal/api"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/api"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 )
 
 type Handler struct {
@@ -38,7 +38,7 @@ func (h *Handler) Export(w http.ResponseWriter, r *http.Request) {
 	if h.audit != nil {
 		h.audit.Log(r, "tenant.data_export", "tenant", tenantID, nil)
 	}
-	w.Header().Set("Content-Disposition", `attachment; filename="fluxa-tenant-export.json"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="nexora-tenant-export.json"`)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Type", "application/json")

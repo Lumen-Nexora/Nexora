@@ -23,7 +23,7 @@ const freshSecret = "SCLS3N3ULDEF2RAALWFGEOET2F534XNJUCGHE5T3J3T4PB2OHEDS4MGI"
 // test only has to override the value under test.
 func setRequiredEnv(t *testing.T) {
 	t.Helper()
-	t.Setenv("DATABASE_URL", "postgres://localhost/fluxa")
+	t.Setenv("DATABASE_URL", "postgres://localhost/nexora")
 	t.Setenv("REDIS_URL", "redis://localhost:6379")
 	// A high-entropy 32-byte key: the entropy guard rejects repeated-byte keys
 	// before any other validation runs, so fixtures must use real-looking

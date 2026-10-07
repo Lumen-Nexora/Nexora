@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 
 function getStoredKey(): string | null {
   if (typeof window === 'undefined') return null;
-  return localStorage.getItem('fluxa_api_key');
+  return localStorage.getItem('nexora_api_key');
 }
 
 interface AuthContextValue {
@@ -26,12 +26,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(() => !!getStoredKey());
 
   const login = useCallback((apiKey: string) => {
-    localStorage.setItem('fluxa_api_key', apiKey);
+    localStorage.setItem('nexora_api_key', apiKey);
     setIsAuthenticated(true);
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem('fluxa_api_key');
+    localStorage.removeItem('nexora_api_key');
     setIsAuthenticated(false);
   }, []);
 

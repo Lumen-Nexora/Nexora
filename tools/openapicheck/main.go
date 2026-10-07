@@ -1,4 +1,4 @@
-// Command openapicheck validates the Fluxa OpenAPI document.
+// Command openapicheck validates the Nexora OpenAPI document.
 //
 // The document at docs/openapi.yaml is the published contract for the API and is
 // served verbatim from /docs/openapi.yaml, so a mistake in it is a mistake in the

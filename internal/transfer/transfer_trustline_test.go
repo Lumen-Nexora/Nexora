@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/fees"
-	"github.com/fluxa/fluxa/internal/transfer"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/fees"
+	"github.com/Lumen-Nexora/Nexora/internal/transfer"
 	"github.com/shopspring/decimal"
 	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/protocols/horizon"

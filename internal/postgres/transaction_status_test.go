@@ -3,7 +3,7 @@ package postgres
 import (
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 // TestTransactionStatusesMatchEnum verifies that every TransactionStatus

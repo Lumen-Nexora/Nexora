@@ -1,11 +1,11 @@
-# Fluxa Python SDK
+# Nexora Python SDK
 
-Typed asynchronous client for the Fluxa payment API. The package is imported as `fluxa` and uses one reusable `httpx.AsyncClient` per `FluxaClient`.
+Typed asynchronous client for the Nexora payment API. The package is imported as `nexora` and uses one reusable `httpx.AsyncClient` per `NexoraClient`.
 
 ## Install
 
 ```bash
-pip install fluxa-api-sdk
+pip install nexora-api-sdk
 ```
 
 To publish a release, configure PyPI trusted publishing for the `pypi` GitHub environment and push a tag such as `sdk-python/v0.1.0`.
@@ -16,11 +16,11 @@ Python 3.11 or newer is required.
 
 ```python
 import asyncio
-from fluxa import FluxaClient
+from nexora import NexoraClient
 
 
 async def main() -> None:
-    async with FluxaClient("sk_live_...") as client:
+    async with NexoraClient("sk_live_...") as client:
         wallet = await client.wallets.create()
         transfer = await client.transfers.create(
             {
@@ -39,9 +39,9 @@ asyncio.run(main())
 ## Configuration and retries
 
 ```python
-client = FluxaClient(
+client = NexoraClient(
     "sk_live_...",
-    base_url="https://api.fluxa.io",
+    base_url="https://api.nexora.io",
     timeout=30.0,
     max_retries=2,  # retries are disabled by default
     retry_delay=0.5,
@@ -51,7 +51,7 @@ client = FluxaClient(
 Every method is async and supports `RequestOptions(timeout=...)`; cancellation is provided by normal `asyncio` task cancellation. Financial POST operations receive a generated `Idempotency-Key`. A supplied key is preserved:
 
 ```python
-from fluxa import RequestOptions
+from nexora import RequestOptions
 
 await client.transfers.create(payload, RequestOptions(idempotency_key="payout-2026-09-28"))
 ```
@@ -73,4 +73,4 @@ Retries are opt-in. Reads may be retried when enabled; mutations are retried onl
 | `payment_links` | `create`, `list`, `get`, `cancel` |
 | `refunds` | `create`, `get`, `list` |
 
-All resource methods return typed dictionaries generated from `docs/openapi.yaml`. Errors are `FluxaError` instances with `code`, `message`, `http_status`, and `details`; common HTTP failures have specialized subclasses.
+All resource methods return typed dictionaries generated from `docs/openapi.yaml`. Errors are `NexoraError` instances with `code`, `message`, `http_status`, and `details`; common HTTP failures have specialized subclasses.

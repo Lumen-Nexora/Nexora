@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/wallet"
+	"github.com/Lumen-Nexora/Nexora/internal/wallet"
 	"github.com/go-chi/chi/v5"
 )
 

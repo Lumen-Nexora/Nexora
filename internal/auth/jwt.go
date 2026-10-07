@@ -1,4 +1,4 @@
-// Package auth implements JWT-based authentication for the Fluxa API.
+// Package auth implements JWT-based authentication for the Nexora API.
 //
 // # Library choice
 //
@@ -41,8 +41,8 @@ import (
 // Issuer and Audience values embedded in every token and verified on parse.
 // Changing these constants invalidates all previously issued tokens.
 const (
-	TokenIssuer   = "fluxa"
-	TokenAudience = "fluxa-api"
+	TokenIssuer   = "nexora"
+	TokenAudience = "nexora-api"
 )
 
 // Claims is the verified payload extracted from a JWT.

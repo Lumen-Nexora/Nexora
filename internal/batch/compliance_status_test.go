@@ -3,7 +3,7 @@ package batch
 import (
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 func txWith(status domain.TransactionStatus) *domain.Transaction {

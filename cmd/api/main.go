@@ -8,45 +8,45 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/alerting"
-	"github.com/fluxa/fluxa/internal/anchor"
-	"github.com/fluxa/fluxa/internal/apikey"
-	"github.com/fluxa/fluxa/internal/assets"
-	"github.com/fluxa/fluxa/internal/audit"
-	"github.com/fluxa/fluxa/internal/auth"
-	"github.com/fluxa/fluxa/internal/batch"
-	"github.com/fluxa/fluxa/internal/beneficiary"
-	"github.com/fluxa/fluxa/internal/claimable"
-	"github.com/fluxa/fluxa/internal/compliance"
-	"github.com/fluxa/fluxa/internal/config"
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/fees"
-	"github.com/fluxa/fluxa/internal/fiat"
-	"github.com/fluxa/fluxa/internal/fiat/flutterwave"
-	"github.com/fluxa/fluxa/internal/fx"
-	fluxahealth "github.com/fluxa/fluxa/internal/health"
-	"github.com/fluxa/fluxa/internal/indexer"
-	"github.com/fluxa/fluxa/internal/logging"
-	"github.com/fluxa/fluxa/internal/org"
-	"github.com/fluxa/fluxa/internal/paymentlink"
-	"github.com/fluxa/fluxa/internal/postgres"
-	"github.com/fluxa/fluxa/internal/queue"
-	"github.com/fluxa/fluxa/internal/reconcile"
-	"github.com/fluxa/fluxa/internal/refund"
-	"github.com/fluxa/fluxa/internal/schedule"
-	"github.com/fluxa/fluxa/internal/server"
-	"github.com/fluxa/fluxa/internal/server/idempotency"
-	"github.com/fluxa/fluxa/internal/settlement"
-	"github.com/fluxa/fluxa/internal/status"
-	"github.com/fluxa/fluxa/internal/stellar"
-	"github.com/fluxa/fluxa/internal/tenantdata"
-	"github.com/fluxa/fluxa/internal/tracing"
-	"github.com/fluxa/fluxa/internal/transfer"
-	"github.com/fluxa/fluxa/internal/transferapproval"
-	"github.com/fluxa/fluxa/internal/treasury"
-	"github.com/fluxa/fluxa/internal/wallet"
-	"github.com/fluxa/fluxa/internal/wallet_balance_alert"
-	"github.com/fluxa/fluxa/internal/webhook"
+	"github.com/Lumen-Nexora/Nexora/internal/alerting"
+	"github.com/Lumen-Nexora/Nexora/internal/anchor"
+	"github.com/Lumen-Nexora/Nexora/internal/apikey"
+	"github.com/Lumen-Nexora/Nexora/internal/assets"
+	"github.com/Lumen-Nexora/Nexora/internal/audit"
+	"github.com/Lumen-Nexora/Nexora/internal/auth"
+	"github.com/Lumen-Nexora/Nexora/internal/batch"
+	"github.com/Lumen-Nexora/Nexora/internal/beneficiary"
+	"github.com/Lumen-Nexora/Nexora/internal/claimable"
+	"github.com/Lumen-Nexora/Nexora/internal/compliance"
+	"github.com/Lumen-Nexora/Nexora/internal/config"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/fees"
+	"github.com/Lumen-Nexora/Nexora/internal/fiat"
+	"github.com/Lumen-Nexora/Nexora/internal/fiat/flutterwave"
+	"github.com/Lumen-Nexora/Nexora/internal/fx"
+	nexorahealth "github.com/Lumen-Nexora/Nexora/internal/health"
+	"github.com/Lumen-Nexora/Nexora/internal/indexer"
+	"github.com/Lumen-Nexora/Nexora/internal/logging"
+	"github.com/Lumen-Nexora/Nexora/internal/org"
+	"github.com/Lumen-Nexora/Nexora/internal/paymentlink"
+	"github.com/Lumen-Nexora/Nexora/internal/postgres"
+	"github.com/Lumen-Nexora/Nexora/internal/queue"
+	"github.com/Lumen-Nexora/Nexora/internal/reconcile"
+	"github.com/Lumen-Nexora/Nexora/internal/refund"
+	"github.com/Lumen-Nexora/Nexora/internal/schedule"
+	"github.com/Lumen-Nexora/Nexora/internal/server"
+	"github.com/Lumen-Nexora/Nexora/internal/server/idempotency"
+	"github.com/Lumen-Nexora/Nexora/internal/settlement"
+	"github.com/Lumen-Nexora/Nexora/internal/status"
+	"github.com/Lumen-Nexora/Nexora/internal/stellar"
+	"github.com/Lumen-Nexora/Nexora/internal/tenantdata"
+	"github.com/Lumen-Nexora/Nexora/internal/tracing"
+	"github.com/Lumen-Nexora/Nexora/internal/transfer"
+	"github.com/Lumen-Nexora/Nexora/internal/transferapproval"
+	"github.com/Lumen-Nexora/Nexora/internal/treasury"
+	"github.com/Lumen-Nexora/Nexora/internal/wallet"
+	"github.com/Lumen-Nexora/Nexora/internal/wallet_balance_alert"
+	"github.com/Lumen-Nexora/Nexora/internal/webhook"
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -312,14 +312,14 @@ func main() {
 
 	if cfg.WorkerEnabled {
 		go func() {
-			log.Info().Msg("fluxa api: settlement/indexer asynq consumer starting")
+			log.Info().Msg("nexora api: settlement/indexer asynq consumer starting")
 			if err := asynqSrv.Run(asynqMux); err != nil {
-				log.Error().Err(err).Msg("fluxa api: asynq consumer stopped")
+				log.Error().Err(err).Msg("nexora api: asynq consumer stopped")
 			}
 		}()
 	}
 
-	alertClient := alerting.NewClient(cfg.AlertWebhookURL, "fluxa-api")
+	alertClient := alerting.NewClient(cfg.AlertWebhookURL, "nexora-api")
 	reconcileSvc := reconcile.NewService(
 		txRepo,
 		reconcileRepo,
@@ -328,7 +328,7 @@ func main() {
 		alertClient,
 		queueClient,
 		webhookSvc,
-		"fluxa-api",
+		"nexora-api",
 		decimal.Zero,
 		assets.NewRegistry(cfg.StellarUSDCIssuer, cfg.StellarEURCIssuer),
 		cfg.PlatformFeeWalletPublicKey,
@@ -400,7 +400,7 @@ func main() {
 		"redis":    func(ctx context.Context) error { return redisClient.Ping(ctx).Err() },
 		"horizon":  server.HorizonDependencyCheck(cfg.StellarHorizonURL),
 		"worker": func(ctx context.Context) error {
-			_, err := redisClient.Get(ctx, "fluxa:worker:heartbeat").Result()
+			_, err := redisClient.Get(ctx, "nexora:worker:heartbeat").Result()
 			return err
 		},
 	}
@@ -408,11 +408,11 @@ func main() {
 	dependencyNames := []string{"postgres", "replica", "redis", "horizon", "worker"}
 	statusSvc := status.NewService(incidentRepo).WithDependencyHistory(healthHistoryRepo, dependencyNames)
 	statusHandler := status.NewHandler(statusSvc)
-	healthSamplerChecks := make(map[string]fluxahealth.DependencyCheck, len(healthChecks))
+	healthSamplerChecks := make(map[string]nexorahealth.DependencyCheck, len(healthChecks))
 	for name, check := range healthChecks {
-		healthSamplerChecks[name] = fluxahealth.DependencyCheck(check)
+		healthSamplerChecks[name] = nexorahealth.DependencyCheck(check)
 	}
-	fluxahealth.NewSampler(healthSamplerChecks, healthHistoryRepo).Start(ctx)
+	nexorahealth.NewSampler(healthSamplerChecks, healthHistoryRepo).Start(ctx)
 	beneficiaryHandler := beneficiary.NewHandler(beneficiarySvc)
 	walletBalanceAlertHandler := wallet_balance_alert.NewHandler(walletBalanceAlertSvc)
 	tenantDataHandler := tenantdata.NewHandler(tenantdata.NewService(repoDB))
@@ -468,7 +468,7 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		log.Info().Str("port", cfg.Port).Msg("fluxa api starting")
+		log.Info().Str("port", cfg.Port).Msg("nexora api starting")
 		if err := srv.Start(); err != nil {
 			log.Error().Err(err).Msg("server stopped")
 		}

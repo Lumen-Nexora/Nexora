@@ -3,8 +3,8 @@ package tenant
 import (
 	"context"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/requestctx"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/requestctx"
 )
 
 type contextKey struct{}

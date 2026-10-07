@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/fiat"
+	"github.com/Lumen-Nexora/Nexora/internal/fiat"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
@@ -465,7 +465,7 @@ func (p *Provider) doRequest(ctx context.Context, method, path string, body []by
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
-	req.Header.Set("User-Agent", "Fluxa/1.0")
+	req.Header.Set("User-Agent", "Nexora/1.0")
 
 	return p.client.Do(req)
 }

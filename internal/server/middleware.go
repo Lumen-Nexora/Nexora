@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/api"
-	"github.com/fluxa/fluxa/internal/apikey"
-	"github.com/fluxa/fluxa/internal/auth"
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/postgres"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/api"
+	"github.com/Lumen-Nexora/Nexora/internal/apikey"
+	"github.com/Lumen-Nexora/Nexora/internal/auth"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/postgres"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -88,7 +88,7 @@ func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
 			}
 
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-Request-ID, X-Fluxa-Mode")
+			w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-Request-ID, X-Nexora-Mode")
 			w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 			if r.Method == http.MethodOptions {
@@ -152,7 +152,7 @@ func AuthMiddleware(repo *postgres.APIKeyRepo, jwtSecret []byte, validator Membe
 						claims.Role = member.Role
 					}
 					mode := domain.ModeLive
-					if requested := r.Header.Get("X-Fluxa-Mode"); requested != "" {
+					if requested := r.Header.Get("X-Nexora-Mode"); requested != "" {
 						parsed, parseErr := domain.ParseMode(requested)
 						if parseErr != nil {
 							api.Error(w, http.StatusBadRequest, "INVALID_ENVIRONMENT_MODE", parseErr.Error())

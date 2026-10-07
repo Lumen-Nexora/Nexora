@@ -458,7 +458,7 @@ Rate limits return the same JSON envelope as other `/v1` errors and include `Ret
 
 ## Stellar / Horizon Pass-Through Errors
 
-When the Stellar network returns an error during transaction submission, Fluxa maps it to a generic `500 INTERNAL_ERROR`. The original Stellar error is logged server-side and may include:
+When the Stellar network returns an error during transaction submission, Nexora maps it to a generic `500 INTERNAL_ERROR`. The original Stellar error is logged server-side and may include:
 
 | Stellar Error | Meaning |
 |---|---|

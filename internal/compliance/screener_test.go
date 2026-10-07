@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 // stubScreener returns a canned result, per the repo's hand-written-mock

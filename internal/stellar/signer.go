@@ -3,7 +3,7 @@ package stellar
 import (
 	"fmt"
 
-	"github.com/fluxa/fluxa/internal/crypto"
+	"github.com/Lumen-Nexora/Nexora/internal/crypto"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/txnbuild"

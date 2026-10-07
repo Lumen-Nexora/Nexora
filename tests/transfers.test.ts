@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TransfersResource } from '../src/resources/transfers';
-import { FluxaClient } from '../src/client';
+import { NexoraClient } from '../src/client';
 import type { Transfer, TransfersFilter } from '../src/types/transfers';
 
 const mockClient = {
   request: vi.fn()
-} as unknown as FluxaClient;
+} as unknown as NexoraClient;
 
 const createMockResponse = (transfers: Transfer[], hasNextPage: boolean, endCursor?: string) => ({
   data: {

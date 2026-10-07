@@ -132,11 +132,11 @@ export type EnvironmentMode = 'live' | 'test';
 
 function currentMode(): EnvironmentMode {
   if (typeof window === 'undefined') return 'live';
-  return localStorage.getItem('fluxa_mode') === 'test' ? 'test' : 'live';
+  return localStorage.getItem('nexora_mode') === 'test' ? 'test' : 'live';
 }
 
 async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('fluxa_token') : null;
+  const token = typeof window !== 'undefined' ? localStorage.getItem('nexora_token') : null;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options?.headers as Record<string, string>),
@@ -366,7 +366,7 @@ export const api = {
     }),
   getBatch: (id: string) => request<BatchResponse>(`/v1/transfers/batch/${id}`),
   exportBatchCsv: async (id: string) => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('fluxa_token') : null;
+    const token = typeof window !== 'undefined' ? localStorage.getItem('nexora_token') : null;
     const res = await fetch(`${API_BASE}/v1/transfers/batch/${id}/export`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });

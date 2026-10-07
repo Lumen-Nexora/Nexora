@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/server/idempotency"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/server/idempotency"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )

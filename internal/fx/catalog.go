@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/fluxa/fluxa/internal/assets"
+	"github.com/Lumen-Nexora/Nexora/internal/assets"
 )
 
 type CatalogPair struct {

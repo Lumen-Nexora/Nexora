@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-class FluxaError(Exception):
+class NexoraError(Exception):
     def __init__(
         self,
         http_status: int,
@@ -20,37 +20,37 @@ class FluxaError(Exception):
         self.retry_after = retry_after
 
 
-class AuthenticationError(FluxaError):
+class AuthenticationError(NexoraError):
     pass
 
 
-class NotFoundError(FluxaError):
+class NotFoundError(NexoraError):
     pass
 
 
-class ValidationError(FluxaError):
+class ValidationError(NexoraError):
     pass
 
 
-class ConflictError(FluxaError):
+class ConflictError(NexoraError):
     pass
 
 
-class RateLimitError(FluxaError):
+class RateLimitError(NexoraError):
     pass
 
 
-def classify_error(http_status: int, body: Any, retry_after: float | None = None) -> FluxaError:
+def classify_error(http_status: int, body: Any, retry_after: float | None = None) -> NexoraError:
     envelope = body.get("error") if isinstance(body, dict) else None
     if isinstance(envelope, dict) and isinstance(envelope.get("code"), str) and isinstance(envelope.get("message"), str):
         details = body.get("validation_errors", envelope.get("details"))
-        cls: type[FluxaError]
+        cls: type[NexoraError]
         cls = {
             400: ValidationError,
             401: AuthenticationError,
             404: NotFoundError,
             409: ConflictError,
             429: RateLimitError,
-        }.get(http_status, FluxaError)
+        }.get(http_status, NexoraError)
         return cls(http_status, envelope["code"], envelope["message"], details, retry_after)
-    return FluxaError(http_status, "UNKNOWN_ERROR", f"request failed with status {http_status}", body, retry_after)
+    return NexoraError(http_status, "UNKNOWN_ERROR", f"request failed with status {http_status}", body, retry_after)

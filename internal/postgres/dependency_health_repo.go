@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 var dependencyNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)

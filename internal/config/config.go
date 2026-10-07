@@ -139,7 +139,7 @@ var wellKnownTestnetAddresses = map[string]struct{}{
 // environment.
 var wellKnownJWTSecrets = map[string]struct{}{
 	// Was the hardcoded viper default in this repo (removed in this commit).
-	"fluxa-default-jwt-secret-key-change-in-production": {},
+	"nexora-default-jwt-secret-key-change-in-production": {},
 	// Common tutorial / StackOverflow examples.
 	"secret":                 {},
 	"your-256-bit-secret":    {},
@@ -264,7 +264,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("RECONCILIATION_DRIFT_THRESHOLD_USD", "1.00")
 	viper.SetDefault("OTEL_ENABLED", false)
 	viper.SetDefault("OTEL_EXPORTER_ENDPOINT", "http://localhost:4318")
-	viper.SetDefault("OTEL_SERVICE_NAME", "fluxa")
+	viper.SetDefault("OTEL_SERVICE_NAME", "nexora")
 	viper.SetDefault("FX_SPREAD_BPS", "50")
 	// JWT_SECRET has no default — a missing value fails at boot in all environments.
 	// Generate with: openssl rand -hex 32

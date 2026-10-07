@@ -1,10 +1,10 @@
 <?php
-// Fluxa webhook signature verification (PHP).
+// Nexora webhook signature verification (PHP).
 // No external dependencies — uses the `hash` extension (bundled with PHP) only.
 
 declare(strict_types=1);
 
-const FLUXA_TOLERANCE_SECONDS = 300;
+const NEXORA_TOLERANCE_SECONDS = 300;
 
 final class VerifyResult
 {
@@ -16,12 +16,12 @@ final class VerifyResult
 }
 
 /**
- * Verifies a Fluxa webhook delivery.
+ * Verifies a Nexora webhook delivery.
  *
  * @param string $secret    The webhook endpoint's signing secret.
- * @param string $timestamp Value of the X-Fluxa-Timestamp header (Unix seconds, as a string).
+ * @param string $timestamp Value of the X-Nexora-Timestamp header (Unix seconds, as a string).
  * @param string $body      The raw, unparsed request body exactly as received.
- * @param string $signature Value of the X-Fluxa-Signature header, e.g. "sha256=...".
+ * @param string $signature Value of the X-Nexora-Signature header, e.g. "sha256=...".
  */
 function verify_webhook_signature(string $secret, string $timestamp, string $body, string $signature): VerifyResult
 {
@@ -33,7 +33,7 @@ function verify_webhook_signature(string $secret, string $timestamp, string $bod
     // Reject deliveries older (or newer) than the tolerance window — this is
     // what stops a captured payload from being replayed later.
     $nowSeconds = time();
-    if (abs($nowSeconds - $timestampSeconds) >= FLUXA_TOLERANCE_SECONDS) {
+    if (abs($nowSeconds - $timestampSeconds) >= NEXORA_TOLERANCE_SECONDS) {
         return new VerifyResult(false, 'stale_timestamp');
     }
 
@@ -53,9 +53,9 @@ function verify_webhook_signature(string $secret, string $timestamp, string $bod
 // Usage:
 //   $result = verify_webhook_signature(
 //       $webhookSecret,
-//       $_SERVER['HTTP_X_FLUXA_TIMESTAMP'],
+//       $_SERVER['HTTP_X_NEXORA_TIMESTAMP'],
 //       $rawBody, // must be the raw request body, not json_decode()'d and re-encoded
-//       $_SERVER['HTTP_X_FLUXA_SIGNATURE'],
+//       $_SERVER['HTTP_X_NEXORA_SIGNATURE'],
 //   );
 //   if (!$result->valid) {
 //       http_response_code(400);

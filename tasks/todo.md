@@ -94,7 +94,7 @@ sdk: npm run typecheck / build       clean
   verified, plus four more found only by running against a real Postgres
   (nullable fee scan, `COUNT(*) ... FOR UPDATE`, a 16-vs-21 column scan in
   `ListByBatch`, and both enum-rollback migrations).
-- **`docs/fluxa.postman_collection.json` and `apps/web/src/lib/api.ts`** were
+- **`docs/nexora.postman_collection.json` and `apps/web/src/lib/api.ts`** were
   updated too — CLAUDE.md's cross-cutting rule requires it and the plan's file
   list omitted them. No dashboard pages were added; the issue didn't ask.
 - **Reconciler guard added.** The plan wanted a test asserting held rows are

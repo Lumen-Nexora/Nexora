@@ -8,8 +8,8 @@ from typing import Any
 import httpx
 import pytest
 
-from fluxa import FluxaClient, FluxaError, RequestOptions
-from fluxa.errors import ValidationError
+from nexora import NexoraClient, NexoraError, RequestOptions
+from nexora.errors import ValidationError
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -32,7 +32,7 @@ def test_shared_conformance(case: dict[str, Any]) -> None:
         return httpx.Response(status, headers=headers, json={"ok": True})
 
     async def run() -> None:
-        client = FluxaClient(
+        client = NexoraClient(
             "test-key",
             base_url="https://api.example.test",
             max_retries=case.get("max_retries", 0),
@@ -40,10 +40,10 @@ def test_shared_conformance(case: dict[str, Any]) -> None:
             transport=httpx.MockTransport(handler),
         )
         options = RequestOptions(idempotency_key=case.get("idempotency_key"))
-        error: FluxaError | None = None
+        error: NexoraError | None = None
         try:
             await client._http.request(case["method"], case["path"], options=options)
-        except FluxaError as exc:
+        except NexoraError as exc:
             error = exc
         finally:
             await client.aclose()
@@ -69,7 +69,7 @@ def test_each_resource_has_success_and_typed_error() -> None:
 
     async def run() -> None:
         nonlocal failing, current_path
-        client = FluxaClient("test-key", transport=httpx.MockTransport(handler))
+        client = NexoraClient("test-key", transport=httpx.MockTransport(handler))
         checks = [
             ("wallets", "/wallets", lambda: client.wallets.create()),
             ("transfers", "/transfers", lambda: client.transfers.create({})),
@@ -99,7 +99,7 @@ def test_each_resource_has_success_and_typed_error() -> None:
 
 def test_error_envelope_preserves_validation_details() -> None:
     async def run() -> None:
-        client = FluxaClient(
+        client = NexoraClient(
             "test-key",
             transport=httpx.MockTransport(
                 lambda _: httpx.Response(400, json={"error": {"code": "INVALID", "message": "bad input"}, "validation_errors": [{"field": "amount"}]})
@@ -117,4 +117,4 @@ def test_error_envelope_preserves_validation_details() -> None:
 
 def test_missing_api_key_is_rejected() -> None:
     with pytest.raises(ValueError, match="api_key"):
-        FluxaClient("")
+        NexoraClient("")

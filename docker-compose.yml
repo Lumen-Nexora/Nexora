@@ -2,15 +2,15 @@ services:
   postgres:
     image: postgres:15-alpine
     environment:
-      POSTGRES_USER: fluxa
+      POSTGRES_USER: nexora
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: fluxa
+      POSTGRES_DB: nexora
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fluxa"]
+      test: ["CMD-SHELL", "pg_isready -U nexora"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -37,7 +37,7 @@ services:
       PORT: "3000"
       ENV: development
       WORKER_ENABLED: ${WORKER_ENABLED:-true}
-      DATABASE_URL: postgresql://fluxa:password@postgres:5432/fluxa?sslmode=disable
+      DATABASE_URL: postgresql://nexora:password@postgres:5432/nexora?sslmode=disable
       REPLICA_DATABASE_URL: ${REPLICA_DATABASE_URL:-}
       REDIS_URL: redis://redis:6379
       REDIS_SENTINEL_MASTER_NAME: ${REDIS_SENTINEL_MASTER_NAME:-}
@@ -72,7 +72,7 @@ services:
       context: .
       dockerfile: Dockerfile.api
     environment:
-      DATABASE_URL: postgresql://fluxa:password@postgres:5432/fluxa?sslmode=disable
+      DATABASE_URL: postgresql://nexora:password@postgres:5432/nexora?sslmode=disable
     depends_on:
       postgres:
         condition: service_healthy
@@ -93,7 +93,7 @@ services:
       INDEXER_STREAM_SHARD_INDEX: ${INDEXER_STREAM_SHARD_INDEX:-0}
       INDEXER_METRICS_PORT: ${INDEXER_METRICS_PORT:-9090}
       WORKER_ENABLED: ${WORKER_ENABLED:-true}
-      DATABASE_URL: postgresql://fluxa:password@postgres:5432/fluxa?sslmode=disable
+      DATABASE_URL: postgresql://nexora:password@postgres:5432/nexora?sslmode=disable
       REPLICA_DATABASE_URL: ${REPLICA_DATABASE_URL:-}
       REDIS_URL: redis://redis:6379
       REDIS_SENTINEL_MASTER_NAME: ${REDIS_SENTINEL_MASTER_NAME:-}

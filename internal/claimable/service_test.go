@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/claimable"
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/stellar"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/claimable"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/stellar"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"github.com/shopspring/decimal"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/protocols/horizon"
@@ -672,7 +672,7 @@ func TestClaimFallsBackToSoleCustodiedClaimant(t *testing.T) {
 		domain.Claimant{Account: f.claimant.Address()},
 	)
 
-	// No claimant named, but exactly one of the two is a Fluxa wallet, so it is
+	// No claimant named, but exactly one of the two is a Nexora wallet, so it is
 	// unambiguous.
 	result, err := f.svc.Claim(context.Background(), f.balanceID("balance-solo"), "")
 	if err != nil {
@@ -902,7 +902,7 @@ func TestProcessExpiredRevokesBackToOrg(t *testing.T) {
 
 func TestProcessExpiredFallsBackToExpiredWhenRevokeImpossible(t *testing.T) {
 	f := newFixture(t)
-	// revoke_on_expiry is set, but the only claimant is not a Fluxa wallet, so
+	// revoke_on_expiry is set, but the only claimant is not a Nexora wallet, so
 	// there is nobody to claim it back with.
 	f.seed("balance-stranded", past(), true,
 		domain.Claimant{Account: keypair.MustRandom().Address()},

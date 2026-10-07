@@ -3,7 +3,7 @@ package reconcile
 import (
 	"context"
 	"encoding/json"
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"testing"
 	"time"
 )

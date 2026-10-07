@@ -1,6 +1,6 @@
 # Security Policy
 
-Fluxa handles financial transactions and cryptographic keys. Security is critical.
+Nexora handles financial transactions and cryptographic keys. Security is critical.
 
 ## Supported Versions
 
@@ -12,7 +12,7 @@ Fluxa handles financial transactions and cryptographic keys. Security is critica
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-To report a security issue, please email **security@savitura.com** with:
+To report a security issue, please email **derinsolaowolabi@gmail.com** with:
 
 1. A description of the vulnerability
 2. Steps to reproduce
@@ -47,7 +47,7 @@ The following are out of scope:
 
 ## Security Best Practices for Operators
 
-When deploying Fluxa:
+When deploying Nexora:
 
 1. **Encryption keys**: Generate `MASTER_ENCRYPTION_KEY` using `openssl rand -hex 32`. Never reuse keys across environments.
 2. **Database**: Use SSL/TLS connections (`sslmode=require` or `sslmode=verify-full`).
@@ -59,4 +59,4 @@ When deploying Fluxa:
 
 ## Acknowledgments
 
-We thank the security researchers who help keep Fluxa and its users safe.
+We thank the security researchers who help keep Nexora and its users safe.

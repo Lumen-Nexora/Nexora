@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/auth"
+	"github.com/Lumen-Nexora/Nexora/internal/auth"
 )
 
 func TestValidatePassword_MinLength(t *testing.T) {

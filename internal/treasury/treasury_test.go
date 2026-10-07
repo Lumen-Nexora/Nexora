@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/server"
+	"github.com/Lumen-Nexora/Nexora/internal/server"
 	"github.com/stellar/go/keypair"
 	"github.com/stretchr/testify/assert"
 )

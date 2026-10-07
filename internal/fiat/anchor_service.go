@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/anchor"
-	"github.com/fluxa/fluxa/internal/crypto"
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/anchor"
+	"github.com/Lumen-Nexora/Nexora/internal/crypto"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"github.com/google/uuid"
 )
 
@@ -22,7 +22,7 @@ type WalletGetter interface {
 }
 
 // AnchorRepository is the anchor.Repository slice needed to persist
-// Fluxa's own record of deposits/withdrawals initiated against anchors.
+// Nexora's own record of deposits/withdrawals initiated against anchors.
 type AnchorRepository interface {
 	CreateTransaction(ctx context.Context, t *domain.AnchorTransaction) error
 	GetTransactionByID(ctx context.Context, id string, tenantID *string) (*domain.AnchorTransaction, error)
@@ -76,7 +76,7 @@ type AnchorWithdrawRequest struct {
 
 // AnchorTransferResult is returned by InitiateDeposit/InitiateWithdrawal:
 // either a SEP-6 set of bank instructions or a SEP-24 interactive URL,
-// alongside Fluxa's own transaction ID for polling via GetTransaction.
+// alongside Nexora's own transaction ID for polling via GetTransaction.
 type AnchorTransferResult struct {
 	Type           string // "sep6" | "sep24"
 	Instructions   *anchor.DepositInstructions
@@ -192,7 +192,7 @@ func (s *AnchorFiatService) InitiateWithdrawal(ctx context.Context, req AnchorWi
 }
 
 // GetTransaction polls the owning anchor for a transaction's current status,
-// updates Fluxa's own record if it changed, and returns the normalised
+// updates Nexora's own record if it changed, and returns the normalised
 // record (whose Status mirrors the anchor's SEP-6/24 status verbatim).
 func (s *AnchorFiatService) GetTransaction(ctx context.Context, id string) (*domain.AnchorTransaction, error) {
 	tenantID := tenant.IDFromContext(ctx)

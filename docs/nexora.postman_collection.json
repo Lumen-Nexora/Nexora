@@ -1,7 +1,7 @@
 {
   "info": {
-    "name": "Fluxa API",
-    "description": "Fluxa is a programmable payments API built on the Stellar network. This collection covers all REST endpoints for wallet management, transfers, FX conversion, webhooks, and more.\n\n## Getting started\n\n1. **Import the environment** \u2014 also import `fluxa.postman_environment.json` and select either **Fluxa (testnet)** or **Fluxa (mainnet)**.\n2. **Set variables** \u2014 fill in `{{base_url}}`, `{{api_key}}`, and other required variables in the environment.\n3. **Try the Health endpoint** to confirm connectivity.\n4. Follow the [Quickstart Guide](/docs/quickstart.md) for a full walkthrough.\n\nThe collection-level pre-request script automatically sets `Authorization: Bearer {{api_key}}` on every request.",
+    "name": "Nexora API",
+    "description": "Nexora is a programmable payments API built on the Stellar network. This collection covers all REST endpoints for wallet management, transfers, FX conversion, webhooks, and more.\n\n## Getting started\n\n1. **Import the environment** \u2014 also import `nexora.postman_environment.json` and select either **Nexora (testnet)** or **Nexora (mainnet)**.\n2. **Set variables** \u2014 fill in `{{base_url}}`, `{{api_key}}`, and other required variables in the environment.\n3. **Try the Health endpoint** to confirm connectivity.\n4. Follow the [Quickstart Guide](/docs/quickstart.md) for a full walkthrough.\n\nThe collection-level pre-request script automatically sets `Authorization: Bearer {{api_key}}` on every request.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -1342,7 +1342,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"url\": \"https://example.com/webhooks/fluxa\",\n  \"events\": [\n    \"transfer.settled\",\n    \"transfer.failed\"\n  ]\n}",
+              "raw": "{\n  \"url\": \"https://example.com/webhooks/nexora\",\n  \"events\": [\n    \"transfer.settled\",\n    \"transfer.failed\"\n  ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1372,7 +1372,7 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\"id\":\"0193b0b4-1b33-7e9a-bcf6-2e2a0abb6d42\",\"url\":\"https://example.com/webhooks/fluxa\",\"secret\":\"a1b2c3d4e5f67890a1b2c3d4e5f67890\",\"events\":[\"transfer.settled\",\"transfer.failed\"],\"active\":true,\"created_at\":\"2026-06-22T12:00:00Z\"}"
+              "body": "{\"id\":\"0193b0b4-1b33-7e9a-bcf6-2e2a0abb6d42\",\"url\":\"https://example.com/webhooks/nexora\",\"secret\":\"a1b2c3d4e5f67890a1b2c3d4e5f67890\",\"events\":[\"transfer.settled\",\"transfer.failed\"],\"active\":true,\"created_at\":\"2026-06-22T12:00:00Z\"}"
             }
           ]
         },
@@ -1423,7 +1423,7 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\"endpoints\":[{\"id\":\"0193b0b4-...\",\"url\":\"https://example.com/webhooks/fluxa\",\"events\":[\"transfer.settled\",\"transfer.failed\"],\"active\":true,\"created_at\":\"2026-06-22T12:00:00Z\"}]}"
+              "body": "{\"endpoints\":[{\"id\":\"0193b0b4-...\",\"url\":\"https://example.com/webhooks/nexora\",\"events\":[\"transfer.settled\",\"transfer.failed\"],\"active\":true,\"created_at\":\"2026-06-22T12:00:00Z\"}]}"
             }
           ]
         },

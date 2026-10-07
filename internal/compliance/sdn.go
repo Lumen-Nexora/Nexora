@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 // SourceOFAC is the source tag written to sanctions_entities and

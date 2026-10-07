@@ -18,10 +18,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/api"
-	fluxacrypto "github.com/fluxa/fluxa/internal/crypto"
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/api"
+	nexoracrypto "github.com/Lumen-Nexora/Nexora/internal/crypto"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -153,7 +153,7 @@ func MiddlewareWithOptions(repo Repository, opts Options) func(http.Handler) htt
 			case Replay:
 				responseBody := acquisition.Record.ResponseBody
 				if len(opts.ResponseEncryptionKey) > 0 {
-					responseBody, err = fluxacrypto.Decrypt(responseBody, opts.ResponseEncryptionKey)
+					responseBody, err = nexoracrypto.Decrypt(responseBody, opts.ResponseEncryptionKey)
 					if err != nil {
 						api.Error(w, http.StatusInternalServerError, "IDEMPOTENCY_RESPONSE_UNAVAILABLE", "the stored operation response could not be recovered")
 						return
@@ -191,7 +191,7 @@ func MiddlewareWithOptions(repo Repository, opts Options) func(http.Handler) htt
 			response.Headers = replayableHeader(response.Headers)
 			recordedResponse := response
 			if len(opts.ResponseEncryptionKey) > 0 {
-				recordedResponse.Body, err = fluxacrypto.Encrypt(response.Body, opts.ResponseEncryptionKey)
+				recordedResponse.Body, err = nexoracrypto.Encrypt(response.Body, opts.ResponseEncryptionKey)
 				if err != nil {
 					api.Error(w, http.StatusInternalServerError, "IDEMPOTENCY_RESPONSE_ENCRYPTION_FAILED", "the operation response could not be stored securely")
 					return

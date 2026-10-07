@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/fiat"
+	"github.com/Lumen-Nexora/Nexora/internal/fiat"
 	"github.com/shopspring/decimal"
 )
 
@@ -88,7 +88,7 @@ func (p *Provider) InitiateDeposit(ctx context.Context, req fiat.DepositRequest)
 		"tx_ref":       req.Reference,
 		"amount":       req.FiatAmount.String(),
 		"currency":     req.FiatCurrency,
-		"redirect_url": "https://fluxa.io/payment/callback",
+		"redirect_url": "https://nexora.io/payment/callback",
 		"customer": map[string]string{
 			"email": req.CustomerEmail,
 			"name":  req.CustomerName,
@@ -142,7 +142,7 @@ func (p *Provider) InitiateWithdrawal(ctx context.Context, req fiat.WithdrawalRe
 		"amount":         req.FiatAmount.String(),
 		"currency":       req.FiatCurrency,
 		"reference":      req.ProviderRef,
-		"narration":      "Fluxa Withdrawal",
+		"narration":      "Nexora Withdrawal",
 	}
 	body, _ := json.Marshal(payload)
 
@@ -345,7 +345,7 @@ func parseWebhookAmount(raw json.RawMessage) (decimal.Decimal, error) {
 }
 
 // mapFlutterwaveStatus translates a Flutterwave charge/transfer status into
-// Fluxa's internal completed/failed vocabulary. Anything that isn't a
+// Nexora's internal completed/failed vocabulary. Anything that isn't a
 // documented terminal status (e.g. "pending") is rejected outright, so an
 // in-flight transaction can never be mistaken for a finished one.
 func mapFlutterwaveStatus(providerStatus string) (string, error) {

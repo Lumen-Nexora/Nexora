@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 )

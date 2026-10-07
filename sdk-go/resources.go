@@ -1,4 +1,4 @@
-package fluxa
+package nexora
 
 import (
 	"context"

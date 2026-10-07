@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { createPage, paginate, paginateAll, paginatePages, Page, PageFetcher } from './pagination';
-import { RepeatedCursorError, FluxaError } from './errors';
+import { RepeatedCursorError, NexoraError } from './errors';
 import { RequestOptions } from './http';
 
 describe('createPage helper', () => {
@@ -247,7 +247,7 @@ describe('Cursor pagination generator and helpers', () => {
   });
 
   it('propagates HTTP failures directly without retrying outside policy', async () => {
-    const error500 = new FluxaError(500, {
+    const error500 = new NexoraError(500, {
       code: 'INTERNAL_ERROR',
       message: 'Database connection failed',
     });

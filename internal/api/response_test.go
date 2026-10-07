@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/api"
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/api"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 func TestErrorContractIncludesEffectiveRequestIDAndStatus(t *testing.T) {

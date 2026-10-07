@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/queue"
-	"github.com/fluxa/fluxa/internal/tenant"
-	"github.com/fluxa/fluxa/internal/tracing"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/queue"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/tracing"
 	"github.com/hibiken/asynq"
 )
 

@@ -2,7 +2,7 @@
 
 ## Summary
 
-This PR implements two major features for the Fluxa platform:
+This PR implements two major features for the Nexora platform:
 
 1. **Issue #313: FX Rate Alerts and Bounded Rate Locks**
 2. **Issue #315: Tenant-Scoped Custodial Wallet Consolidation and Account Closure**
@@ -146,7 +146,7 @@ Both features are production-ready designs with database migrations, repository 
 ✅ Audit logging structures  
 
 ### Integration Points (Service Layer)
-The following service-layer integrations require existing Fluxa infrastructure knowledge:
+The following service-layer integrations require existing Nexora infrastructure knowledge:
 - FX service methods to create/evaluate alerts and locks
 - Wallet service methods to execute consolidation and closure
 - Background worker to evaluate alerts against live rates
@@ -305,4 +305,4 @@ This implementation provides production-ready foundations for both issues #313 a
 - Security considerations documented
 - Migration rollback support
 
-The design follows Fluxa's existing patterns and integrates cleanly with the current architecture.
+The design follows Nexora's existing patterns and integrates cleanly with the current architecture.

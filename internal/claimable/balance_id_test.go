@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/claimable"
+	"github.com/Lumen-Nexora/Nexora/internal/claimable"
 	"github.com/stellar/go/keypair"
 )
 

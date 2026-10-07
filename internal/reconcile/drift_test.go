@@ -8,10 +8,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/alerting"
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/stellar"
-	"github.com/fluxa/fluxa/internal/webhook"
+	"github.com/Lumen-Nexora/Nexora/internal/alerting"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/stellar"
+	"github.com/Lumen-Nexora/Nexora/internal/webhook"
 	"github.com/shopspring/decimal"
 	horizonclient "github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/protocols/horizon"
@@ -195,10 +195,10 @@ func newDriftService(t *testing.T, dbBalance, chainBalance, threshold string) (*
 		&driftStellar{balances: map[string]decimal.Decimal{
 			driftWalletPK: decimal.RequireFromString(chainBalance),
 		}, asset: "USDC"},
-		alerting.NewClient(sink.server.URL, "fluxa-test"),
+		alerting.NewClient(sink.server.URL, "nexora-test"),
 		nil,
 		hook,
-		"fluxa-test",
+		"nexora-test",
 		decimal.Zero,
 		nil,
 		"",

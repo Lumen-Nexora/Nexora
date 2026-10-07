@@ -9,24 +9,24 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/alerting"
-	"github.com/fluxa/fluxa/internal/assets"
-	"github.com/fluxa/fluxa/internal/claimable"
-	"github.com/fluxa/fluxa/internal/compliance"
-	"github.com/fluxa/fluxa/internal/config"
-	"github.com/fluxa/fluxa/internal/fees"
-	"github.com/fluxa/fluxa/internal/indexer"
-	"github.com/fluxa/fluxa/internal/logging"
-	"github.com/fluxa/fluxa/internal/postgres"
-	"github.com/fluxa/fluxa/internal/queue"
-	"github.com/fluxa/fluxa/internal/reconcile"
-	"github.com/fluxa/fluxa/internal/schedule"
-	"github.com/fluxa/fluxa/internal/settlement"
-	"github.com/fluxa/fluxa/internal/stellar"
-	"github.com/fluxa/fluxa/internal/tracing"
-	"github.com/fluxa/fluxa/internal/transfer"
-	"github.com/fluxa/fluxa/internal/treasury"
-	"github.com/fluxa/fluxa/internal/webhook"
+	"github.com/Lumen-Nexora/Nexora/internal/alerting"
+	"github.com/Lumen-Nexora/Nexora/internal/assets"
+	"github.com/Lumen-Nexora/Nexora/internal/claimable"
+	"github.com/Lumen-Nexora/Nexora/internal/compliance"
+	"github.com/Lumen-Nexora/Nexora/internal/config"
+	"github.com/Lumen-Nexora/Nexora/internal/fees"
+	"github.com/Lumen-Nexora/Nexora/internal/indexer"
+	"github.com/Lumen-Nexora/Nexora/internal/logging"
+	"github.com/Lumen-Nexora/Nexora/internal/postgres"
+	"github.com/Lumen-Nexora/Nexora/internal/queue"
+	"github.com/Lumen-Nexora/Nexora/internal/reconcile"
+	"github.com/Lumen-Nexora/Nexora/internal/schedule"
+	"github.com/Lumen-Nexora/Nexora/internal/settlement"
+	"github.com/Lumen-Nexora/Nexora/internal/stellar"
+	"github.com/Lumen-Nexora/Nexora/internal/tracing"
+	"github.com/Lumen-Nexora/Nexora/internal/transfer"
+	"github.com/Lumen-Nexora/Nexora/internal/treasury"
+	"github.com/Lumen-Nexora/Nexora/internal/webhook"
 	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
@@ -139,7 +139,7 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-		_, _ = fmt.Fprintf(w, "# HELP fluxa_indexer_active_streams Active Horizon payment streams.\n# TYPE fluxa_indexer_active_streams gauge\nfluxa_indexer_active_streams %d\n", idx.ActiveStreams())
+		_, _ = fmt.Fprintf(w, "# HELP nexora_indexer_active_streams Active Horizon payment streams.\n# TYPE nexora_indexer_active_streams gauge\nnexora_indexer_active_streams %d\n", idx.ActiveStreams())
 	})
 	metricsServer := &http.Server{Addr: ":" + cfg.IndexerMetricsPort, Handler: metricsMux}
 	go func() {
@@ -158,7 +158,7 @@ func main() {
 		}
 	}()
 
-	alertClient := alerting.NewClient(cfg.AlertWebhookURL, "fluxa-worker")
+	alertClient := alerting.NewClient(cfg.AlertWebhookURL, "nexora-worker")
 	asynqOpt, err := queue.AsynqRedisOptions(cfg.RedisURL, cfg.RedisSentinelMasterName, cfg.RedisSentinelAddrs, cfg.RedisSentinelPassword)
 	if err != nil {
 		log.Fatal().Err(err).Msg("configure asynq redis")
@@ -175,7 +175,7 @@ func main() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 		for {
-			if err := redisClient.Set(ctx, "fluxa:worker:heartbeat", time.Now().UTC().Format(time.RFC3339Nano), 30*time.Second).Err(); err != nil {
+			if err := redisClient.Set(ctx, "nexora:worker:heartbeat", time.Now().UTC().Format(time.RFC3339Nano), 30*time.Second).Err(); err != nil {
 				log.Warn().Err(err).Msg("worker heartbeat failed")
 			}
 			select {
@@ -329,7 +329,7 @@ func main() {
 		alertClient,
 		qClient,
 		webhookSvc,
-		"fluxa-worker",
+		"nexora-worker",
 		balanceThreshold,
 		assets.NewRegistry(cfg.StellarUSDCIssuer, cfg.StellarEURCIssuer),
 		cfg.PlatformFeeWalletPublicKey,
@@ -428,7 +428,7 @@ func main() {
 	}()
 
 	go func() {
-		log.Info().Msg("fluxa worker starting")
+		log.Info().Msg("nexora worker starting")
 		if err := srv.Run(mux); err != nil {
 			log.Error().Err(err).Msg("worker stopped")
 		}

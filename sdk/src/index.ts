@@ -1,9 +1,9 @@
-export { FluxaClient } from './client';
-export type { FluxaClientConfig } from './client';
+export { NexoraClient } from './client';
+export type { NexoraClientConfig } from './client';
 export type { RequestOptions } from './http';
 
 export {
-  FluxaError,
+  NexoraError,
   AuthenticationError,
   NotFoundError,
   ValidationError,

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 )
 
 // mockConfigRepo is an in-memory ConfigRepository keyed by tenant so the
@@ -740,11 +740,11 @@ func TestDispatchToTenants_SendsSignedPayloadAndRecordsSuccess(t *testing.T) {
 	var gotSig, gotTimestamp, gotEvent, gotTenant, gotKeyID string
 	var gotBody []byte
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotSig = r.Header.Get("X-Fluxa-Signature")
-		gotTimestamp = r.Header.Get("X-Fluxa-Timestamp")
-		gotEvent = r.Header.Get("X-Fluxa-Event")
-		gotTenant = r.Header.Get("X-Fluxa-Tenant-ID")
-		gotKeyID = r.Header.Get("X-Fluxa-Key-ID")
+		gotSig = r.Header.Get("X-Nexora-Signature")
+		gotTimestamp = r.Header.Get("X-Nexora-Timestamp")
+		gotEvent = r.Header.Get("X-Nexora-Event")
+		gotTenant = r.Header.Get("X-Nexora-Tenant-ID")
+		gotKeyID = r.Header.Get("X-Nexora-Key-ID")
 		gotBody, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -985,7 +985,7 @@ func TestTestDelivery_SendsSampleEventAndRecordsResult(t *testing.T) {
 	var gotEvent string
 	var body []byte
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotEvent = r.Header.Get("X-Fluxa-Event")
+		gotEvent = r.Header.Get("X-Nexora-Event")
 		body, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
 	}))

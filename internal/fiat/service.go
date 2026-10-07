@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/fx"
-	"github.com/fluxa/fluxa/internal/tenant"
-	"github.com/fluxa/fluxa/internal/transfer"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/fx"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/transfer"
 	"github.com/google/uuid"
 )
 

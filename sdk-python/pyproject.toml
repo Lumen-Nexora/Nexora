@@ -3,26 +3,26 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "fluxa-api-sdk"
+name = "nexora-api-sdk"
 version = "0.1.0"
-description = "Typed async Python SDK for the Fluxa payment API"
+description = "Typed async Python SDK for the Nexora payment API"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = ["httpx>=0.27,<1"]
-keywords = ["fluxa", "payments", "stellar", "sdk"]
+keywords = ["nexora", "payments", "stellar", "sdk"]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<9"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/fluxa"]
+packages = ["src/nexora"]
 
 [tool.hatch.build.targets.sdist.force-include]
-"src/fluxa/py.typed" = "src/fluxa/py.typed"
+"src/nexora/py.typed" = "src/nexora/py.typed"
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/fluxa/py.typed" = "fluxa/py.typed"
+"src/nexora/py.typed" = "nexora/py.typed"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

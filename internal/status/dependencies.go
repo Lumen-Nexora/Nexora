@@ -6,8 +6,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/health"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/health"
 )
 
 var dependencyNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)

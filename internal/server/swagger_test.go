@@ -119,15 +119,15 @@ func TestServeOpenAPISpec(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "openapi:") && !strings.Contains(body, "Fluxa API") {
-		t.Errorf("expected OpenAPI spec to contain openapi header or Fluxa API title, got: %s", body[:min(len(body), 200)])
+	if !strings.Contains(body, "openapi:") && !strings.Contains(body, "Nexora API") {
+		t.Errorf("expected OpenAPI spec to contain openapi header or Nexora API title, got: %s", body[:min(len(body), 200)])
 	}
 }
 
 func TestServeOpenAPISpec_CustomEnv(t *testing.T) {
 	tmpDir := t.TempDir()
 	specFile := filepath.Join(tmpDir, "custom-spec.yaml")
-	content := "openapi: 3.0.3\ninfo:\n  title: Custom Fluxa\n"
+	content := "openapi: 3.0.3\ninfo:\n  title: Custom Nexora\n"
 	if err := os.WriteFile(specFile, []byte(content), 0644); err != nil {
 		t.Fatalf("write temp spec: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestServeOpenAPISpec_CustomEnv(t *testing.T) {
 		t.Fatalf("expected status 200, got %d", rec.Code)
 	}
 
-	if !strings.Contains(rec.Body.String(), "Custom Fluxa") {
+	if !strings.Contains(rec.Body.String(), "Custom Nexora") {
 		t.Errorf("expected spec loaded from OPENAPI_SPEC_PATH, got: %s", rec.Body.String())
 	}
 }

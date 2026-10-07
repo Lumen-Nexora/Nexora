@@ -1,4 +1,4 @@
-package fluxa
+package nexora
 
 import (
 	"bytes"
@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-const defaultBaseURL = "https://api.fluxa.io"
+const defaultBaseURL = "https://api.nexora.io"
 
 type Config struct {
 	APIKey     string
@@ -54,7 +54,7 @@ type Client struct {
 
 func NewClient(config Config) (*Client, error) {
 	if strings.TrimSpace(config.APIKey) == "" {
-		return nil, errors.New("fluxa: APIKey is required")
+		return nil, errors.New("nexora: APIKey is required")
 	}
 	if config.BaseURL == "" {
 		config.BaseURL = defaultBaseURL
@@ -112,7 +112,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any, que
 	if body == nil {
 		bodyBytes = nil
 	} else if err != nil {
-		return fmt.Errorf("fluxa: encode request: %w", err)
+		return fmt.Errorf("nexora: encode request: %w", err)
 	}
 	key := option.IdempotencyKey
 	if key == "" {
@@ -124,7 +124,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any, que
 	if key == "" && method == http.MethodPost && idempotencyRequired(path) {
 		key, err = newIdempotencyKey()
 		if err != nil {
-			return fmt.Errorf("fluxa: create idempotency key: %w", err)
+			return fmt.Errorf("nexora: create idempotency key: %w", err)
 		}
 	}
 	canRetry := method == http.MethodGet || method == http.MethodHead || key != ""
@@ -143,7 +143,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any, que
 		}
 		request, err := http.NewRequestWithContext(ctx, method, endpoint, requestBody)
 		if err != nil {
-			return fmt.Errorf("fluxa: create request: %w", err)
+			return fmt.Errorf("nexora: create request: %w", err)
 		}
 		request.Header.Set("Accept", "application/json")
 		request.Header.Set("Authorization", "Bearer "+c.apiKey)
@@ -169,7 +169,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any, que
 				}
 				continue
 			}
-			return &FluxaError{Code: "NETWORK_ERROR", Message: requestErr.Error()}
+			return &NexoraError{Code: "NETWORK_ERROR", Message: requestErr.Error()}
 		}
 		responseBody, readErr := io.ReadAll(response.Body)
 		_ = response.Body.Close()
@@ -177,7 +177,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any, que
 			if canRetry && attempt < c.maxRetries {
 				continue
 			}
-			return &FluxaError{Code: "NETWORK_ERROR", Message: readErr.Error()}
+			return &NexoraError{Code: "NETWORK_ERROR", Message: readErr.Error()}
 		}
 		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 			delay, hasRetryAfter := parseRetryAfter(response.Header.Get("Retry-After"), time.Now())
@@ -207,7 +207,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any, que
 			return nil
 		}
 		if err := json.Unmarshal(responseBody, output); err != nil {
-			return fmt.Errorf("fluxa: decode response: %w", err)
+			return fmt.Errorf("nexora: decode response: %w", err)
 		}
 		return nil
 	}

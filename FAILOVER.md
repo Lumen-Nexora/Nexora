@@ -1,4 +1,4 @@
-# Fluxa Multi-Region Failover Runbook
+# Nexora Multi-Region Failover Runbook
 
 This runbook promotes the secondary region to the active region after the primary is confirmed unavailable. The deployment is **active-passive**: the primary handles writes and runs the worker, while the secondary serves API traffic from a read replica and keeps its worker disabled.
 

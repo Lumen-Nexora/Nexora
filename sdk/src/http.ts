@@ -1,4 +1,4 @@
-import { classifyError, FluxaError, RateLimitError } from './errors';
+import { classifyError, NexoraError, RateLimitError } from './errors';
 
 export interface HttpClientConfig {
   baseUrl: string;
@@ -221,7 +221,7 @@ export class HttpClient {
       } catch (err) {
         clearTimeout(timeoutId);
 
-        if (err instanceof FluxaError) {
+        if (err instanceof NexoraError) {
           throw err;
         }
 
@@ -232,19 +232,19 @@ export class HttpClient {
         }
 
         if (err instanceof DOMException && err.name === 'AbortError') {
-          throw new FluxaError(408, {
+          throw new NexoraError(408, {
             code: 'TIMEOUT',
             message: `Request timed out after ${options.timeout ?? this.config.timeout}ms`,
           });
         }
 
-        throw new FluxaError(0, {
+        throw new NexoraError(0, {
           code: 'NETWORK_ERROR',
           message: lastError?.message ?? 'Network request failed',
         });
       }
     }
 
-    throw lastError ?? new FluxaError(0, { code: 'UNKNOWN', message: 'Request failed' });
+    throw lastError ?? new NexoraError(0, { code: 'UNKNOWN', message: 'Request failed' });
   }
 }

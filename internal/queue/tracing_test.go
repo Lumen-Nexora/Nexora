@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/tracing"
+	"github.com/Lumen-Nexora/Nexora/internal/tracing"
 	"github.com/hibiken/asynq"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -58,7 +58,7 @@ func enableTracing(t *testing.T) (*otlpSink, tracing.Shutdown) {
 	shutdown, err := tracing.Init(context.Background(), tracing.Config{
 		Enabled:          true,
 		ExporterEndpoint: ts.URL,
-		ServiceName:      "fluxa-test",
+		ServiceName:      "nexora-test",
 	})
 	if err != nil {
 		t.Fatalf("tracing.Init() error: %v", err)

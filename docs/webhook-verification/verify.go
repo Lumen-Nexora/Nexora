@@ -1,4 +1,4 @@
-// Package webhookverify verifies Fluxa webhook deliveries.
+// Package webhookverify verifies Nexora webhook deliveries.
 // No external dependencies — uses the standard library only.
 package webhookverify
 
@@ -19,12 +19,12 @@ type VerifyResult struct {
 	Reason string // empty when Valid is true
 }
 
-// VerifyWebhookSignature verifies a Fluxa webhook delivery.
+// VerifyWebhookSignature verifies a Nexora webhook delivery.
 //
 // secret:    the webhook endpoint's signing secret.
-// timestamp: value of the X-Fluxa-Timestamp header (Unix seconds, as a string).
+// timestamp: value of the X-Nexora-Timestamp header (Unix seconds, as a string).
 // body:      the raw, unparsed request body exactly as received.
-// signature: value of the X-Fluxa-Signature header, e.g. "sha256=...".
+// signature: value of the X-Nexora-Signature header, e.g. "sha256=...".
 func VerifyWebhookSignature(secret, timestamp, body, signature string) (VerifyResult, error) {
 	timestampSeconds, err := strconv.ParseInt(timestamp, 10, 64)
 	if err != nil {
@@ -62,9 +62,9 @@ func VerifyWebhookSignature(secret, timestamp, body, signature string) (VerifyRe
 // Usage:
 //   result, err := webhookverify.VerifyWebhookSignature(
 //       webhookSecret,
-//       r.Header.Get("X-Fluxa-Timestamp"),
+//       r.Header.Get("X-Nexora-Timestamp"),
 //       string(rawBody), // must be the raw body bytes, not re-marshaled JSON
-//       r.Header.Get("X-Fluxa-Signature"),
+//       r.Header.Get("X-Nexora-Signature"),
 //   )
 //   if err != nil || !result.Valid {
 //       http.Error(w, result.Reason, http.StatusBadRequest)

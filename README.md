@@ -1,4 +1,4 @@
-# Fluxa TypeScript SDK
+# Nexora TypeScript SDK
 
 ## Cursor Pagination
 
@@ -7,9 +7,9 @@ The SDK provides helpers for cursor-based pagination to simplify fetching large 
 ### Single Page
 
 ```typescript
-import { FluxaClient } from '@savitura/fluxa';
+import { NexoraClient } from '@lumen-nexora/nexora';
 
-const client = new FluxaClient({ /* config */ });
+const client = new NexoraClient({ /* config */ });
 const { nodes, pageInfo } = await client.transfers.list(
   { from: '0x123...' },
   { orderBy: 'timestamp', orderDirection: 'desc' },
@@ -24,7 +24,7 @@ console.log(pageInfo.endCursor); // string | null
 ### Streaming with Async Iteration
 
 ```typescript
-const client = new FluxaClient({ /* config */ });
+const client = new NexoraClient({ /* config */ });
 
 for await (const transfer of client.transfers.iterate(
   { from: '0x123...' },

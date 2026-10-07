@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/server/idempotency"
-	"github.com/fluxa/fluxa/internal/tenant"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/server/idempotency"
+	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"github.com/google/uuid"
 )
 
@@ -494,7 +494,7 @@ func TestReplayRestoresHandlerHeaders(t *testing.T) {
 	mw := idempotency.Middleware(repo)
 	h := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Fluxa-Test", "preserved")
+		w.Header().Set("X-Nexora-Test", "preserved")
 		w.WriteHeader(http.StatusCreated)
 		_, _ = w.Write([]byte(`{"id":"tx-h"}`))
 	}))
@@ -509,8 +509,8 @@ func TestReplayRestoresHandlerHeaders(t *testing.T) {
 	if second.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", second.Code)
 	}
-	if second.Header().Get("X-Fluxa-Test") != "preserved" {
-		t.Fatalf("expected handler header to be replayed, got %q", second.Header().Get("X-Fluxa-Test"))
+	if second.Header().Get("X-Nexora-Test") != "preserved" {
+		t.Fatalf("expected handler header to be replayed, got %q", second.Header().Get("X-Nexora-Test"))
 	}
 	if second.Header().Get("Idempotency-Replayed") != "true" {
 		t.Fatal("expected replayed response to be marked with Idempotency-Replayed")

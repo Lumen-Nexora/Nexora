@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/auth"
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/auth"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -67,7 +67,7 @@ func assertAPIError(t *testing.T, rec *httptest.ResponseRecorder, status int) {
 func TestHandler_InternalErrorsNeverLeaked(t *testing.T) {
 	t.Run("Login internal database error does not leak to client", func(t *testing.T) {
 		svc := &mockAuthService{
-			loginErr: errors.New("pq: password authentication failed for user 'postgres' host: 10.0.0.1 database 'fluxa_prod'"),
+			loginErr: errors.New("pq: password authentication failed for user 'postgres' host: 10.0.0.1 database 'nexora_prod'"),
 		}
 		router := setupRouter(svc)
 
@@ -84,7 +84,7 @@ func TestHandler_InternalErrorsNeverLeaked(t *testing.T) {
 
 		body := rec.Body.String()
 		// Must not contain database details
-		if strings.Contains(body, "postgres") || strings.Contains(body, "fluxa_prod") || strings.Contains(body, "10.0.0.1") {
+		if strings.Contains(body, "postgres") || strings.Contains(body, "nexora_prod") || strings.Contains(body, "10.0.0.1") {
 			t.Fatalf("internal error text was leaked in response body: %q", body)
 		}
 

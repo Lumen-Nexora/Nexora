@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/fluxa/fluxa/internal/fiat"
+	"github.com/Lumen-Nexora/Nexora/internal/fiat"
 	"github.com/shopspring/decimal"
 )
 

@@ -9,10 +9,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
-	"github.com/fluxa/fluxa/internal/stellar"
-	"github.com/fluxa/fluxa/internal/transfer"
-	"github.com/fluxa/fluxa/internal/wallet"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/stellar"
+	"github.com/Lumen-Nexora/Nexora/internal/transfer"
+	"github.com/Lumen-Nexora/Nexora/internal/wallet"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/shopspring/decimal"
@@ -346,7 +346,7 @@ func (idx *Indexer) StreamWallet(ctx context.Context, w *domain.Wallet) {
 }
 
 // processPayment records an inbound payment operation as a transaction, if it
-// isn't already known. Outgoing payments are skipped here since Fluxa records
+// isn't already known. Outgoing payments are skipped here since Nexora records
 // its own outbound transfers at submission time. Uses UpsertByTxHash to avoid
 // TOCTOU race between ExistsByTxHash check and Create.
 func (idx *Indexer) processPayment(ctx context.Context, w *domain.Wallet, op operations.Operation) error {

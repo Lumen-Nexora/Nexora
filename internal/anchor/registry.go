@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/google/uuid"
 )
 
@@ -115,7 +115,7 @@ func (r *Registry) List() []*domain.Anchor {
 	return out
 }
 
-// GetByID returns a registered anchor by its Fluxa-assigned ID.
+// GetByID returns a registered anchor by its Nexora-assigned ID.
 func (r *Registry) GetByID(id string) (*domain.Anchor, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

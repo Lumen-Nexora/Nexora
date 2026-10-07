@@ -1,8 +1,8 @@
-from .client import FluxaClient
+from .client import NexoraClient
 from .errors import (
     AuthenticationError,
     ConflictError,
-    FluxaError,
+    NexoraError,
     NotFoundError,
     RateLimitError,
     ValidationError,
@@ -11,9 +11,9 @@ from .http import RequestOptions
 from .models import *
 
 __all__ = [
-    "FluxaClient",
+    "NexoraClient",
     "RequestOptions",
-    "FluxaError",
+    "NexoraError",
     "AuthenticationError",
     "ConflictError",
     "NotFoundError",

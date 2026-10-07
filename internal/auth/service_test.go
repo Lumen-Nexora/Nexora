@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/fluxa/fluxa/internal/auth"
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/auth"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 func TestJWTGenerationAndParsing(t *testing.T) {

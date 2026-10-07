@@ -1,11 +1,11 @@
-package fluxa
+package nexora
 
 import (
 	"encoding/json"
 	"fmt"
 )
 
-type FluxaError struct {
+type NexoraError struct {
 	Code       string `json:"code"`
 	Message    string `json:"message"`
 	HTTPStatus int    `json:"http_status"`
@@ -13,14 +13,14 @@ type FluxaError struct {
 	RetryAfter int    `json:"retry_after,omitempty"`
 }
 
-func (e *FluxaError) Error() string {
+func (e *NexoraError) Error() string {
 	if e == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("fluxa: %s (%d): %s", e.Code, e.HTTPStatus, e.Message)
+	return fmt.Sprintf("nexora: %s (%d): %s", e.Code, e.HTTPStatus, e.Message)
 }
 
-func parseError(status int, body []byte, retryAfter int) *FluxaError {
+func parseError(status int, body []byte, retryAfter int) *NexoraError {
 	var envelope struct {
 		Error struct {
 			Code    string `json:"code"`
@@ -40,5 +40,5 @@ func parseError(status int, body []byte, retryAfter int) *FluxaError {
 	if message == "" {
 		message = fmt.Sprintf("request failed with status %d", status)
 	}
-	return &FluxaError{Code: code, Message: message, HTTPStatus: status, Details: details, RetryAfter: retryAfter}
+	return &NexoraError{Code: code, Message: message, HTTPStatus: status, Details: details, RetryAfter: retryAfter}
 }

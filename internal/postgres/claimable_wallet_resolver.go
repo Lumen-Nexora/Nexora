@@ -3,7 +3,7 @@ package postgres
 import (
 	"context"
 
-	"github.com/fluxa/fluxa/internal/domain"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
 
 // ClaimableWalletResolver adapts WalletRepo to the narrow wallet view the
@@ -43,7 +43,7 @@ func (r *ClaimableWalletResolver) GetByPublicKey(ctx context.Context, publicKey 
 	return nil, domain.ErrWalletNotFound
 }
 
-// toSourceWallet returns nil for a wallet Fluxa cannot sign for. Contract
+// toSourceWallet returns nil for a wallet Nexora cannot sign for. Contract
 // wallets have no custodial secret, so they can neither fund a claimable
 // balance nor claim one on a claimant's behalf.
 func toSourceWallet(wallet *domain.Wallet) *domain.SourceWallet {
