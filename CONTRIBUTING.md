@@ -1,6 +1,9 @@
 # Contributing to Nexora
 
-Nexora uses [GrantFox](https://grantfox.xyz) to fund and coordinate open-source contributions. Contributors pick a funded issue, implement it, and submit a PR. One issue per contributor at a time.
+Thank you for your interest in contributing to Nexora! We welcome contributions across **all sections of the codebase** — including the Go backend services, Next.js web application, TypeScript/Go/Python SDKs, Soroban smart contracts, documentation, and test suites.
+
+> [!NOTE]  
+> All pull requests are subject to manual review and approval by the maintainer (`Alosnireda`) prior to merging.
 
 ---
 
@@ -45,14 +48,21 @@ curl "https://friendbot.stellar.org?addr=<PUBLIC_KEY>"
 
 ---
 
-## Picking Up an Issue
+## Scope of Contributions & Process
 
-1. Find an open, unassigned issue in [GitHub Issues](https://github.com/Lumen-Nexora/Nexora/issues)
-2. Comment to claim it — wait for assignment before starting
-3. Fork and branch off `main`: `feat/issue-<number>-short-description`
-4. Stay current with `git rebase origin/main`
+You are free to contribute to any area of the project:
+- **Backend API & Workers** (`cmd/`, `internal/`)
+- **Web Dashboard** (`apps/web/`)
+- **Developer SDKs** (`sdk/`, `sdk-go/`, `sdk-python/`)
+- **Soroban Smart Contracts** (`contracts/soroban/`)
+- **Documentation & Open API Specs** (`docs/`, `*.md`)
 
-Read the full issue body before writing code. Every issue has an acceptance criteria checklist — that determines whether the PR merges.
+### How to Contribute:
+
+1. Browse or open an issue in [GitHub Issues](https://github.com/Lumen-Nexora/Nexora/issues).
+2. Fork the repository and branch off `main`: `feat/short-description` or `fix/short-description`.
+3. Submit a Pull Request targeting `main`.
+4. The maintainer will manually review your PR against unit tests, code quality, and acceptance criteria before merging.
 
 ---
 
