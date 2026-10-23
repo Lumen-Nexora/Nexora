@@ -321,6 +321,127 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /v1/reconciliation/discrepancies/{discrepancyId}/resolutions:
+    post:
+      operationId: createDiscrepancyResolution
+      summary: Propose a discrepancy resolution
+      description: 'Creates a resolution proposal for a ledger variance. Action types are `write_off`,
+        `manual_adjustment` and `partner_recovery`. Adjustments exceeding $50 require maker-checker
+        approval by a second operator before balancing journal entries are posted.'
+      tags:
+      - Admin
+      parameters:
+      - name: discrepancyId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiscrepancyResolutionRequest'
+      responses:
+        '201':
+          description: Resolution proposed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscrepancyResolution'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      operationId: listDiscrepancyResolutions
+      summary: Operator review queue for discrepancy resolutions
+      tags:
+      - Admin
+      parameters:
+      - name: discrepancyId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Resolutions for the discrepancy
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DiscrepancyResolution'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/reconciliation/resolutions/{resolutionId}/approve:
+    post:
+      operationId: approveDiscrepancyResolution
+      summary: Approve a discrepancy resolution (checker)
+      description: 'Records a signed checker approval. The approver must differ from the maker.
+        On approval, balancing journal entries are posted to the double-entry ledger.'
+      tags:
+      - Admin
+      parameters:
+      - name: resolutionId
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolutionApprovalRequest'
+      responses:
+        '200':
+          description: Resolution approved and posted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscrepancyResolution'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InsufficientScope'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/reconciliation/resolutions/{resolutionId}/audit:
+    get:
+      operationId: getDiscrepancyResolutionAudit
+      summary: Audit trail for a discrepancy resolution
+      description: Returns operator identity, timestamps and signed approvals for the resolution.
+      tags:
+      - Audit
+      parameters:
+      - name: resolutionId
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Audit trail
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ResolutionAuditEvent'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /v1/keys:
     post:
       operationId: createAPIKey

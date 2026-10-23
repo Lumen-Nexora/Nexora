@@ -131,7 +131,7 @@ func (r *TransactionRepo) UpdateReconciliationDiscrepancy(ctx context.Context, t
 				RETURNING `+discrepancyColumns, tenantID, id, assigned))
 		case "annotated":
 			result, err = scanDiscrepancy(db.QueryRow(txCtx, `UPDATE reconciliation_discrepancies
-				SET resolution_note = CASE WHEN resolution_note = '' THEN $3 ELSE resolution_note || E'\\n' || $3 END,
+				SET resolution_note = CASE WHEN resolution_note = '' THEN $3 ELSE resolution_note || E'\n' || $3 END,
 				    updated_at = NOW()
 				WHERE tenant_id = $1 AND id = $2 AND status <> 'resolved'
 				RETURNING `+discrepancyColumns, tenantID, id, note))
