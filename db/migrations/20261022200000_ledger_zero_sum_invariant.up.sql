@@ -1,4 +1,8 @@
 -- Zero-sum ledger invariant checker (#117).
+-- Note: the checker runs against the double-entry ledger (ledger_accounts,
+-- journal_entries, ledger_postings) and enforces that every journal entry's
+-- debits equal its credits, with append-only protection on posted entries.
+-- Running balances must be computed with high-precision NUMERIC arithmetic.
 
 -- Wallets that hold the platform's pooled reserves. The checker asserts
 --   SUM(tenant balances) + accumulated fees == SUM(pooled reserve balances)
