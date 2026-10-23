@@ -213,6 +213,24 @@ func postJSON(ctx context.Context, client *http.Client, url string, body any) er
 	return nil
 }
 
+// HotWalletEmergencyIncident builds the incident raised when a hot/warm
+// treasury wallet falls below its emergency threshold. The dedup key is
+// scoped per wallet so each wallet's breach pages once and resolves once.
+func HotWalletEmergencyIncident(wallet string, balance, threshold float64) Incident {
+	return Incident{
+		DedupKey: "treasury-hot-wallet-emergency:" + wallet,
+		Summary:  fmt.Sprintf("Hot wallet %s balance %.8f below emergency threshold %.8f", wallet, balance, threshold),
+		Source:   "treasury-rebalancer",
+		Severity: SeverityCritical,
+		Details: map[string]any{
+			"wallet":    wallet,
+			"balance":   balance,
+			"threshold": threshold,
+		},
+		Timestamp: time.Now(),
+	}
+}
+
 func formatDetails(details map[string]any) string {
 	keys := make([]string, 0, len(details))
 	for k := range details {
