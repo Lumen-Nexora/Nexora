@@ -25,6 +25,8 @@ func (h *Handler) Routes() func(r chi.Router) {
 		r.Get("/", h.List)
 		r.Get("/export", h.Export)
 		r.Get("/proofs/{tx_id}", h.Proof)
+		r.Get("/statements/balance-sheet", h.BalanceSheet)
+		r.Get("/statements/income-statement", h.IncomeStatement)
 	}
 }
 
@@ -86,6 +88,96 @@ func (h *Handler) Proof(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	api.JSON(w, http.StatusOK, proof)
+}
+
+// BalanceSheet generates a multi-currency balance sheet from the ledger.
+// Query params: as_of (RFC3339, default now), currency (ISO code for consolidated USD reporting, default USD),
+// format (json|csv|pdf, default json).
+func (h *Handler) BalanceSheet(w http.ResponseWriter, r *http.Request) {
+	asOf, err := parseAsOf(r)
+	if err != nil {
+		api.BadRequest(w, err.Error())
+		return
+	}
+	format := r.URL.Query().Get("format")
+	if format == "" {
+		format = "json"
+	}
+	base := r.URL.Query().Get("currency")
+	if base == "" {
+		base = "USD"
+	}
+
+	stmt, err := h.svc.BalanceSheet(r.Context(), asOf, base)
+	if err != nil {
+		api.InternalError(w, err)
+		return
+	}
+
+	data, contentType, err := renderStatement(stmt, format)
+	if err != nil {
+		api.BadRequest(w, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+// IncomeStatement generates an income statement for a period with fee revenue,
+// network costs, and FX conversion gains/losses.
+// Query params: from, to (RFC3339, required), currency (default USD), format (json|csv|pdf).
+func (h *Handler) IncomeStatement(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	from, err := time.Parse(time.RFC3339, q.Get("from"))
+	if err != nil {
+		api.BadRequest(w, "from must be RFC3339")
+		return
+	}
+	to, err := time.Parse(time.RFC3339, q.Get("to"))
+	if err != nil {
+		api.BadRequest(w, "to must be RFC3339")
+		return
+	}
+	if !to.After(from) {
+		api.BadRequest(w, "to must be after from")
+		return
+	}
+	format := q.Get("format")
+	if format == "" {
+		format = "json"
+	}
+	base := q.Get("currency")
+	if base == "" {
+		base = "USD"
+	}
+
+	stmt, err := h.svc.IncomeStatement(r.Context(), from, to, base)
+	if err != nil {
+		api.InternalError(w, err)
+		return
+	}
+
+	data, contentType, err := renderStatement(stmt, format)
+	if err != nil {
+		api.BadRequest(w, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
+func parseAsOf(r *http.Request) (time.Time, error) {
+	s := r.URL.Query().Get("as_of")
+	if s == "" {
+		return time.Now().UTC(), nil
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, errors.New("as_of must be RFC3339")
+	}
+	return t, nil
 }
 
 func parseFilter(r *http.Request) domain.AuditFilter {
