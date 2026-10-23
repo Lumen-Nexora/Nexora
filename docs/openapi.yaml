@@ -646,6 +646,108 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /v1/wallets/{id}/memo-policy:
+    get:
+      operationId: getWalletMemoPolicy
+      summary: Get the inbound memo policy of a wallet
+      description: 'Returns the memo validation rule applied to the inbound payments of the wallet.
+
+        A wallet without a policy credits every inbound payment.'
+      tags:
+      - Wallets
+      parameters:
+      - $ref: '#/components/parameters/WalletID'
+      responses:
+        '200':
+          description: The memo policy of the wallet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoPolicy'
+              example:
+                id: 6f0d5f1a-2b3c-4d5e-8f90-a1b2c3d4e5f6
+                tenant_id: 7c1e2d3c-4b5a-4c6d-8e9f-0a1b2c3d4e5f
+                wallet_id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+                format: customer_id
+                require_memo: true
+                auto_refund: false
+                refund_after_seconds: 86400
+                enabled: true
+                created_at: '2026-01-15T10:00:00Z'
+                updated_at: '2026-01-15T10:00:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      operationId: upsertWalletMemoPolicy
+      summary: Set the inbound memo policy of a wallet
+      description: 'Creates or replaces the memo validation rule of the wallet.
+
+        A payment whose memo does not satisfy the rule is not credited: it is
+        queued for investigation, and returned to its sender once the refund
+        timeout expires.'
+      tags:
+      - Wallets
+      parameters:
+      - $ref: '#/components/parameters/WalletID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoPolicyRequest'
+            example:
+              format: customer_id
+              require_memo: true
+              auto_refund: true
+              refund_after_seconds: 86400
+              enabled: true
+      responses:
+        '200':
+          description: The stored memo policy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoPolicy'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      operationId: deleteWalletMemoPolicy
+      summary: Remove the inbound memo policy of a wallet
+      description: 'Stops enforcing the memo rule on the wallet: every inbound payment is
+        credited again.'
+      tags:
+      - Wallets
+      parameters:
+      - $ref: '#/components/parameters/WalletID'
+      responses:
+        '200':
+          description: Memo policy removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: deleted
+                  wallet_id:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /v1/wallets/{id}/deposit/fiat:
     post:
       operationId: depositFiat
@@ -737,6 +839,136 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '409':
           $ref: '#/components/responses/Conflict'
+  /v1/memo-policies:
+    get:
+      operationId: listMemoPolicies
+      summary: List the memo policies of the tenant
+      description: Returns every wallet of the tenant that has an inbound memo policy.
+      tags:
+      - Wallets
+      responses:
+        '200':
+          description: The memo policies of the tenant
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  memo_policies:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MemoPolicy'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/unmapped-deposits:
+    get:
+      operationId: listUnmappedDeposits
+      summary: List the deposits whose memo could not be mapped
+      description: 'Returns the pending investigation queue: the inbound payments that arrived
+        on a wallet with a memo policy but whose memo did not satisfy it.'
+      tags:
+      - Wallets
+      parameters:
+      - name: wallet_id
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+        description: Filter by wallet ID
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - pending
+          - refunding
+          - refunded
+          - resolved
+        description: Filter by resolution status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+        description: Maximum number of results
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+        description: Offset for pagination
+      responses:
+        '200':
+          description: The pending investigation queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UnmappedDeposit'
+                  total:
+                    type: integer
+                    example: 1
+                  limit:
+                    type: integer
+                    example: 50
+                  offset:
+                    type: integer
+                    example: 0
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/unmapped-deposits/{id}/resolve:
+    post:
+      operationId: resolveUnmappedDeposit
+      summary: Resolve a queued deposit
+      description: 'Closes the investigation case of a queued deposit with a resolution note.
+
+        The deposit is not returned to its sender.'
+      tags:
+      - Wallets
+      parameters:
+      - $ref: '#/components/parameters/UnmappedDepositID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - resolution
+              properties:
+                resolution:
+                  type: string
+            example:
+              resolution: credited manually to customer 4711
+      responses:
+        '200':
+          description: The resolved deposit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnmappedDeposit'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /v1/withdrawals:
     post:
       operationId: initiateWithdrawal
@@ -2816,6 +3048,14 @@ components:
         type: string
         format: uuid
       description: Beneficiary ID
+    UnmappedDepositID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Unmapped deposit ID
   responses:
     BadRequest:
       description: Bad request
@@ -3073,6 +3313,7 @@ components:
               - TRANSFER_ID_INVALID
               - TRANSFER_ID_REQUIRED
               - TRANSFER_NOT_CANCELLABLE
+              - UNMAPPED_DEPOSIT_NOT_PENDING
               - UNSUPPORTED_FIAT_CURRENCY
               - WALLET_ID_REQUIRED
               - NOT_FOUND
@@ -3366,6 +3607,137 @@ components:
           type: string
           enum:
           - submitted
+    MemoPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        wallet_id:
+          type: string
+          format: uuid
+        format:
+          type: string
+          enum:
+          - customer_id
+          - email
+          - phone
+          - reference
+          - custom
+          description: Shape the memo of an inbound payment has to have
+        pattern:
+          type: string
+          description: Regular expression the memo has to match; only the `custom` format uses it
+        require_memo:
+          type: boolean
+          description: When false a payment without a memo is accepted; a memo that is sent is still validated
+        auto_refund:
+          type: boolean
+          description: When true a deposit that waited longer than the timeout is returned to its sender
+        refund_after_seconds:
+          type: integer
+          description: Timeout before an unmapped deposit is returned to its sender
+        enabled:
+          type: boolean
+          description: When false the rule is stored but not enforced
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    MemoPolicyRequest:
+      type: object
+      required:
+      - format
+      properties:
+        format:
+          type: string
+          enum:
+          - customer_id
+          - email
+          - phone
+          - reference
+          - custom
+        pattern:
+          type: string
+          description: Regular expression the memo has to match; required by the `custom` format
+        require_memo:
+          type: boolean
+          default: true
+        auto_refund:
+          type: boolean
+          default: false
+        refund_after_seconds:
+          type: integer
+          default: 86400
+          description: Timeout before an unmapped deposit is returned to its sender; at most 2592000
+        enabled:
+          type: boolean
+          default: true
+    UnmappedDeposit:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        wallet_id:
+          type: string
+          format: uuid
+        mode:
+          type: string
+          enum:
+          - live
+          - test
+        tx_hash:
+          type: string
+        source_address:
+          type: string
+          description: Stellar account the deposit came from; the refund goes back to it
+        asset:
+          type: string
+        issuer:
+          type: string
+        amount:
+          type: string
+        memo:
+          type: string
+        reason:
+          type: string
+          enum:
+          - missing_memo
+          - invalid_memo
+        status:
+          type: string
+          enum:
+          - pending
+          - refunding
+          - refunded
+          - resolved
+        refund_after:
+          type: string
+          format: date-time
+        refund_tx_hash:
+          type: string
+        resolution:
+          type: string
+        failure_reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
     FiatQuotePreviewResponse:
       type: object
       properties:

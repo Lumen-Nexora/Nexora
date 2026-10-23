@@ -6,14 +6,18 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/Lumen-Nexora/Nexora/internal/api"
+	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/go-chi/chi/v5"
 )
 
 type Handler struct {
 	svc          Service
 	contractSvc  ContractService
+	memoSvc      *MemoPolicyService
 	idem         func(http.Handler) http.Handler
 	guardianGate func(http.Handler) http.Handler
 }
@@ -27,6 +31,15 @@ func NewHandler(svc Service) *Handler {
 // purely custodial wallets does not expose routes it cannot serve.
 func (h *Handler) WithContractService(contractSvc ContractService) *Handler {
 	h.contractSvc = contractSvc
+	return h
+}
+
+// WithMemoPolicyService enables the inbound memo policy endpoints of a
+// wallet. They are only registered when a memo policy service is wired in,
+// so a deployment that does not enforce memo rules does not expose routes
+// it cannot serve.
+func (h *Handler) WithMemoPolicyService(svc *MemoPolicyService) *Handler {
+	h.memoSvc = svc
 	return h
 }
 
@@ -58,6 +71,12 @@ func (h *Handler) Routes() func(r chi.Router) {
 		r.Get("/{id}", h.getWallet)
 		r.Get("/{id}/balances", h.getBalances)
 		post("/{id}/trustlines", h.addTrustline)
+
+		if h.memoSvc != nil {
+			r.Get("/{id}/memo-policy", h.getMemoPolicy)
+			r.Put("/{id}/memo-policy", h.putMemoPolicy)
+			r.Delete("/{id}/memo-policy", h.deleteMemoPolicy)
+		}
 
 		if h.contractSvc != nil {
 			r.Get("/{id}/contract-state", h.getContractState)
@@ -301,5 +320,70 @@ func (h *Handler) addTrustline(w http.ResponseWriter, r *http.Request) {
 		"wallet_id": id,
 		"asset":     req.Asset,
 		"tx_hash":   txHash,
+	})
+}
+
+// getMemoPolicy returns the inbound memo policy of a wallet.
+func (h *Handler) getMemoPolicy(w http.ResponseWriter, r *http.Request) {
+	policy, err := h.memoSvc.GetPolicy(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		api.WriteError(w, r, err)
+		return
+	}
+	api.JSON(w, http.StatusOK, memoPolicyResponse(policy))
+}
+
+// putMemoPolicy creates or replaces the inbound memo policy of a wallet.
+func (h *Handler) putMemoPolicy(w http.ResponseWriter, r *http.Request) {
+	var req memoPolicyRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			api.BadRequest(w, "invalid request body")
+			return
+		}
+	}
+
+	policy := &domain.MemoPolicy{
+		WalletID:    chi.URLParam(r, "id"),
+		Format:      domain.MemoFormat(strings.ToLower(strings.TrimSpace(req.Format))),
+		Pattern:     strings.TrimSpace(req.Pattern),
+		RequireMemo: true,
+		AutoRefund:  false,
+		Enabled:     true,
+	}
+	if req.RequireMemo != nil {
+		policy.RequireMemo = *req.RequireMemo
+	}
+	if req.AutoRefund != nil {
+		policy.AutoRefund = *req.AutoRefund
+	}
+	if req.Enabled != nil {
+		policy.Enabled = *req.Enabled
+	}
+	if req.RefundAfterSeconds != nil {
+		if *req.RefundAfterSeconds < 0 {
+			api.BadRequest(w, "refund_after_seconds cannot be negative")
+			return
+		}
+		policy.RefundAfter = time.Duration(*req.RefundAfterSeconds) * time.Second
+	}
+
+	stored, err := h.memoSvc.PutPolicy(r.Context(), policy)
+	if err != nil {
+		writeMemoPolicyError(w, r, err)
+		return
+	}
+	api.JSON(w, http.StatusOK, memoPolicyResponse(stored))
+}
+
+// deleteMemoPolicy removes the inbound memo policy of a wallet.
+func (h *Handler) deleteMemoPolicy(w http.ResponseWriter, r *http.Request) {
+	if err := h.memoSvc.DeletePolicy(r.Context(), chi.URLParam(r, "id")); err != nil {
+		writeMemoPolicyError(w, r, err)
+		return
+	}
+	api.JSON(w, http.StatusOK, map[string]interface{}{
+		"status":    "deleted",
+		"wallet_id": chi.URLParam(r, "id"),
 	})
 }
