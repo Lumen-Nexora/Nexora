@@ -1,2 +1,4 @@
+DROP INDEX IF EXISTS idx_reconciliation_discrepancy_history_discrepancy_id;
+DROP INDEX IF EXISTS idx_reconciliation_discrepancies_status;
 DROP TABLE IF EXISTS reconciliation_discrepancy_history;
 DROP TABLE IF EXISTS reconciliation_discrepancies;

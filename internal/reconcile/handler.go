@@ -53,6 +53,8 @@ func (h *Handler) AdminRoutes() func(r chi.Router) {
 		r.Get("/reconciliation/discrepancies", h.discrepancies)
 		r.Get("/reconciliation/discrepancies/summary", h.discrepancySummary)
 		r.Patch("/reconciliation/discrepancies/{id}", h.updateDiscrepancy)
+		r.Post("/reconciliation/discrepancies/{id}/resolve", h.resolveDiscrepancy)
+		r.Post("/reconciliation/discrepancies/{id}/approve", h.approveResolution)
 		r.Post("/reconciliation/run", h.run)
 		r.Post("/transfers/{transferID}/force-settle", h.forceSettle)
 		r.Post("/reconcile/wallet/{walletID}/run", h.runReconcile)
@@ -69,8 +71,8 @@ func (h *Handler) discrepancies(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	category := strings.TrimSpace(r.URL.Query().Get("category"))
-	if status != "" && status != "open" && status != "acknowledged" && status != "resolved" {
-		api.BadRequest(w, "status must be open, acknowledged, or resolved")
+	if status != "" && status != "open" && status != "acknowledged" && status != "resolved" && status != "pending_approval" {
+		api.BadRequest(w, "status must be open, acknowledged, pending_approval, or resolved")
 		return
 	}
 	if category != "" && !validDiscrepancyCategory(category) {
@@ -155,6 +157,114 @@ func (h *Handler) updateDiscrepancy(w http.ResponseWriter, r *http.Request) {
 	api.JSON(w, http.StatusOK, d)
 }
 
+// resolveDiscrepancy proposes a structured resolution (write_off,
+// manual_adjustment, partner_recovery). Adjustments above the maker-checker
+// threshold are parked in pending_approval until a different operator approves.
+func (h *Handler) resolveDiscrepancy(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenant.IDFromContext(r.Context())
+	if tenantID == "" {
+		api.Error(w, http.StatusUnauthorized, "TENANT_REQUIRED", "tenant context is required")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if _, err := uuid.Parse(id); err != nil {
+		api.BadRequest(w, "id must be a valid UUID")
+		return
+	}
+	var req ResolutionRequest
+	if err := decodeDiscrepancyAction(r, &req); err != nil {
+		api.BadRequest(w, "invalid request body")
+		return
+	}
+	req.ActionType = strings.TrimSpace(strings.ToLower(req.ActionType))
+	req.Note = strings.TrimSpace(req.Note)
+	if !validResolutionAction(req.ActionType) {
+		api.BadRequest(w, "action_type must be write_off, manual_adjustment, or partner_recovery")
+		return
+	}
+	if req.Note == "" {
+		api.BadRequest(w, "note is required for resolution")
+		return
+	}
+	if req.AmountMinor <= 0 {
+		api.BadRequest(w, "amount_minor must be positive")
+		return
+	}
+	actor := api.ActorFromContext(r.Context())
+	res, err := h.svc.ProposeResolution(r.Context(), tenantID, id, req, actor)
+	if err != nil {
+		if errors.Is(err, domain.ErrConcurrentUpdate) {
+			api.Error(w, http.StatusConflict, "DISCREPANCY_STATE_CONFLICT", "discrepancy is resolved or has already changed")
+			return
+		}
+		api.InternalError(w, err)
+		return
+	}
+	if h.audit != nil {
+		h.audit.Log(r, "reconciliation.discrepancy.resolution_proposed", "reconciliation_discrepancy", id, map[string]interface{}{
+			"action_type": req.ActionType, "amount_minor": req.AmountMinor, "status": res.Status,
+		})
+	}
+	status := http.StatusOK
+	if res.Status == ResolutionPendingApproval {
+		status = http.StatusAccepted
+	}
+	api.JSON(w, status, res)
+}
+
+// approveResolution is the checker step. The approver must differ from the
+// maker; on approval the balancing journal entry is posted atomically.
+func (h *Handler) approveResolution(w http.ResponseWriter, r *http.Request) {
+	tenantID := tenant.IDFromContext(r.Context())
+	if tenantID == "" {
+		api.Error(w, http.StatusUnauthorized, "TENANT_REQUIRED", "tenant context is required")
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if _, err := uuid.Parse(id); err != nil {
+		api.BadRequest(w, "id must be a valid UUID")
+		return
+	}
+	var req struct {
+		Decision  string `json:"decision"`
+		Signature string `json:"signature"`
+		Note      string `json:"note"`
+	}
+	if err := decodeDiscrepancyAction(r, &req); err != nil {
+		api.BadRequest(w, "invalid request body")
+		return
+	}
+	req.Decision = strings.TrimSpace(strings.ToLower(req.Decision))
+	if req.Decision != "approve" && req.Decision != "reject" {
+		api.BadRequest(w, "decision must be approve or reject")
+		return
+	}
+	if strings.TrimSpace(req.Signature) == "" {
+		api.BadRequest(w, "signature is required for sign-off")
+		return
+	}
+	actor := api.ActorFromContext(r.Context())
+	res, err := h.svc.DecideResolution(r.Context(), tenantID, id, req.Decision, strings.TrimSpace(req.Note), req.Signature, actor)
+	if err != nil {
+		if errors.Is(err, domain.ErrConcurrentUpdate) {
+			api.Error(w, http.StatusConflict, "DISCREPANCY_STATE_CONFLICT", "resolution is not pending approval")
+			return
+		}
+		if errors.Is(err, ErrSelfApprovalForbidden) {
+			api.Error(w, http.StatusForbidden, "MAKER_CHECKER_VIOLATION", "approver must differ from the proposer")
+			return
+		}
+		api.InternalError(w, err)
+		return
+	}
+	if h.audit != nil {
+		h.audit.Log(r, "reconciliation.discrepancy.resolution_"+req.Decision+"d", "reconciliation_discrepancy", id, map[string]interface{}{
+			"journal_entry_id": res.JournalEntryID, "status": res.Status,
+		})
+	}
+	api.JSON(w, http.StatusOK, res)
+}
+
 func decodeDiscrepancyAction(r *http.Request, dst interface{}) error {
 	return json.NewDecoder(r.Body).Decode(dst)
 }
@@ -162,6 +272,15 @@ func decodeDiscrepancyAction(r *http.Request, dst interface{}) error {
 func validDiscrepancyCategory(category string) bool {
 	switch category {
 	case domain.DiscrepancyMissingOnChain, domain.DiscrepancyAmountMismatch, domain.DiscrepancyAssetMismatch, domain.DiscrepancyDuplicateSettlement, domain.DiscrepancyStalePending:
+		return true
+	default:
+		return false
+	}
+}
+
+func validResolutionAction(a string) bool {
+	switch a {
+	case ActionWriteOff, ActionManualAdjustment, ActionPartnerRecovery:
 		return true
 	default:
 		return false
