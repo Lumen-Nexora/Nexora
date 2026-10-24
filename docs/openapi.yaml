@@ -727,23 +727,49 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '500':
           $ref: '#/components/responses/InternalServerError'
-  /v1/wallets/{id}/close:
-    post:
-      operationId: closeWallet
-      summary: Close a custodial wallet (destructive)
-      description: |
-        Permanently destroys a custodial Stellar account. In one atomic
-        transaction every asset trustline is removed (ChangeTrust limit 0) and
-        the account is merged (AccountMerge) into the tenant master address
-        configured under /v1/wallets/custody-settings, recovering all locked
-        native XLM reserves.
+  /v1/wallets/{id}/memo-policy:
+    get:
+      operationId: getWalletMemoPolicy
+      summary: Get the inbound memo policy of a wallet
+      description: 'Returns the memo validation rule applied to the inbound payments of the wallet.
 
-        Refused (409) while any non-native trustline holds a balance or open
-        liabilities, while transfers into or out of the wallet are pending, or
-        when the wallet is the tenant's primary settlement account. The
-        authenticated operator and the justification are written to a
-        permanent compliance audit log before the transaction is submitted.
-        Owner or Admin role required. This cannot be undone.
+        A wallet without a policy credits every inbound payment.'
+      tags:
+      - Wallets
+      parameters:
+      - $ref: '#/components/parameters/WalletID'
+      responses:
+        '200':
+          description: The memo policy of the wallet
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoPolicy'
+              example:
+                id: 6f0d5f1a-2b3c-4d5e-8f90-a1b2c3d4e5f6
+                tenant_id: 7c1e2d3c-4b5a-4c6d-8e9f-0a1b2c3d4e5f
+                wallet_id: 1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d
+                format: customer_id
+                require_memo: true
+                auto_refund: false
+                refund_after_seconds: 86400
+                enabled: true
+                created_at: '2026-01-15T10:00:00Z'
+                updated_at: '2026-01-15T10:00:00Z'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      operationId: upsertWalletMemoPolicy
+      summary: Set the inbound memo policy of a wallet
+      description: 'Creates or replaces the memo validation rule of the wallet.
+
+        A payment whose memo does not satisfy the rule is not credited: it is
+        queued for investigation, and returned to its sender once the refund
+        timeout expires.'
       tags:
       - Wallets
       parameters:
@@ -753,320 +779,52 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CloseWalletRequest'
+              $ref: '#/components/schemas/MemoPolicyRequest'
             example:
-              justification: Customer offboarded; account inactive for 180 days
-              confirm: GBXCAFE7RJHBEVGT5ANBZ7YXDU7S3Y3VQWZ5J4YKJ2D6S7F8G9H0I
+              format: customer_id
+              require_memo: true
+              auto_refund: true
+              refund_after_seconds: 86400
+              enabled: true
       responses:
         '200':
-          description: Account merged into the tenant master address
+          description: The stored memo policy
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AccountClosure'
+                $ref: '#/components/schemas/MemoPolicy'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
-        '409':
-          description: |
-            The account cannot be closed safely. code is one of
-            CLOSURE_OUTSTANDING_BALANCE, CLOSURE_PENDING_TRANSFERS,
-            CLOSURE_PROTECTED_ACCOUNT, CLOSURE_UNSUPPORTED_ACCOUNT or
-            CLOSURE_ALREADY_EXISTS.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                error:
-                  code: CLOSURE_OUTSTANDING_BALANCE
-                  message: wallet holds a non-zero balance or open liabilities on a non-native asset
-                  status: 409
-                  request_id: req-example
         '500':
           $ref: '#/components/responses/InternalServerError'
-        '502':
-          description: The closure transaction was rejected by the network; the returned record is marked failed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccountClosure'
-  /v1/wallets/closures:
-    get:
-      operationId: listAccountClosures
-      summary: List account closures
-      description: Returns the tenant's account closure records, newest first. Owner or Admin role required.
+    delete:
+      operationId: deleteWalletMemoPolicy
+      summary: Remove the inbound memo policy of a wallet
+      description: 'Stops enforcing the memo rule on the wallet: every inbound payment is
+        credited again.'
       tags:
       - Wallets
       parameters:
-      - name: limit
-        in: query
-        schema:
-          type: integer
-          minimum: 1
-          maximum: 100
-          default: 50
-      - name: offset
-        in: query
-        schema:
-          type: integer
-          minimum: 0
-          default: 0
+      - $ref: '#/components/parameters/WalletID'
       responses:
         '200':
-          description: Closure records
+          description: Memo policy removed
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  closures:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/AccountClosure'
+                  status:
+                    type: string
+                    example: deleted
+                  wallet_id:
+                    type: string
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-  /v1/wallets/closures/{closureId}:
-    get:
-      operationId: getAccountClosure
-      summary: Get an account closure
-      description: Returns one closure record. Owner or Admin role required.
-      tags:
-      - Wallets
-      parameters:
-      - name: closureId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      responses:
-        '200':
-          description: Closure record
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AccountClosure'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-  /v1/wallets/custody-settings:
-    get:
-      operationId: getCustodySettings
-      summary: Get custody settings
-      description: Returns the master address and primary settlement wallet for the request's live/test mode. Owner or Admin role required.
-      tags:
-      - Wallets
-      responses:
-        '200':
-          description: Custody settings
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CustodySettings'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-    put:
-      operationId: putCustodySettings
-      summary: Set custody settings
-      description: |
-        Sets the tenant master address that receives the reserves of closed
-        wallets and, when auto_sweep_enabled is set, swept customer deposits;
-        and the primary settlement wallet, which is never closed or swept.
-        Applies to the request's live/test mode. Owner or Admin role required.
-      tags:
-      - Wallets
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CustodySettingsRequest'
-            example:
-              master_address: GA5ZSEJ6BHT2ZKGDABICHI62W25ZJUXUNFFYGLYTIEXP6CZMUWqmOvxM
-              primary_settlement_wallet_id: 3f1c2b7e-8d4a-4f0e-9a51-6c2d8e7b1a90
-              auto_sweep_enabled: true
-      responses:
-        '200':
-          description: Settings stored
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CustodySettings'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-  /v1/wallets/consolidations:
-    post:
-      operationId: createWalletConsolidation
-      summary: Consolidate balances from many wallets
-      description: |
-        Moves the balances of up to 500 of the tenant's custodial wallets into
-        one of its wallets. Every source and the destination must belong to
-        the calling tenant.
-
-        With dry_run, returns the exact plan (batches, fees, recovered
-        reserves and the destination's resulting balances) without submitting
-        or recording anything. Otherwise the request is priced, recorded under
-        idempotency_key and executed in the background in sequential batches
-        of batch_size (10-20) wallets per Stellar transaction, fewer when a
-        batch would exceed 100 operations. Poll the returned operation.
-
-        Retrying with the same idempotency_key and body returns the original
-        operation (200) and never moves funds twice; the same key with a
-        different body is refused (409).
-
-        merge_sources closes each source: balances are paid out, trustlines
-        removed and the account merged into the destination, recovering its
-        reserves. Owner or Admin role required.
-      tags:
-      - Wallets
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ConsolidationRequest'
-            example:
-              source_wallet_ids:
-              - 3f1c2b7e-8d4a-4f0e-9a51-6c2d8e7b1a90
-              - 9b2d4f6a-1c3e-4a5b-8d7f-0e1a2b3c4d5e
-              destination_wallet_id: 7c1e9a4e-2b3d-4c5e-9f60-1a2b3c4d5e6f
-              idempotency_key: consolidate-2026-10-22
-              batch_size: 20
-              merge_sources: false
-              dry_run: true
-      responses:
-        '200':
-          description: Dry-run preview, or the original operation for a replayed idempotency_key
-          content:
-            application/json:
-              schema:
-                oneOf:
-                - $ref: '#/components/schemas/ConsolidationPreview'
-                - $ref: '#/components/schemas/ConsolidationOperation'
-        '202':
-          description: Consolidation accepted and queued
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ConsolidationOperation'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          description: |
-            The idempotency_key was used for a different request (CONFLICT),
-            no source has anything to move (CONSOLIDATION_NOTHING_TO_MOVE), or
-            the destination is not on the ledger
-            (CONSOLIDATION_DESTINATION_UNFUNDED).
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-              example:
-                error:
-                  code: CONSOLIDATION_NOTHING_TO_MOVE
-                  message: no source wallet has a balance that can be consolidated
-                  status: 409
-                  request_id: req-example
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-    get:
-      operationId: listWalletConsolidations
-      summary: List consolidations
-      description: Returns the tenant's consolidations, newest first. Owner or Admin role required.
-      tags:
-      - Wallets
-      parameters:
-      - name: limit
-        in: query
-        schema:
-          type: integer
-          minimum: 1
-          maximum: 100
-          default: 50
-      - name: offset
-        in: query
-        schema:
-          type: integer
-          minimum: 0
-          default: 0
-      responses:
-        '200':
-          description: Consolidations
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  consolidations:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/ConsolidationOperation'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalServerError'
-  /v1/wallets/consolidations/{consolidationId}:
-    get:
-      operationId: getWalletConsolidation
-      summary: Get a consolidation
-      description: Returns one consolidation with its per-batch results. Owner or Admin role required.
-      tags:
-      - Wallets
-      parameters:
-      - name: consolidationId
-        in: path
-        required: true
-        schema:
-          type: string
-          format: uuid
-      responses:
-        '200':
-          description: Consolidation
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ConsolidationOperation'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '500':
@@ -1162,6 +920,136 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '409':
           $ref: '#/components/responses/Conflict'
+  /v1/memo-policies:
+    get:
+      operationId: listMemoPolicies
+      summary: List the memo policies of the tenant
+      description: Returns every wallet of the tenant that has an inbound memo policy.
+      tags:
+      - Wallets
+      responses:
+        '200':
+          description: The memo policies of the tenant
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  memo_policies:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MemoPolicy'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/unmapped-deposits:
+    get:
+      operationId: listUnmappedDeposits
+      summary: List the deposits whose memo could not be mapped
+      description: 'Returns the pending investigation queue: the inbound payments that arrived
+        on a wallet with a memo policy but whose memo did not satisfy it.'
+      tags:
+      - Wallets
+      parameters:
+      - name: wallet_id
+        in: query
+        required: false
+        schema:
+          type: string
+          format: uuid
+        description: Filter by wallet ID
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - pending
+          - refunding
+          - refunded
+          - resolved
+        description: Filter by resolution status
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+        description: Maximum number of results
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 0
+        description: Offset for pagination
+      responses:
+        '200':
+          description: The pending investigation queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UnmappedDeposit'
+                  total:
+                    type: integer
+                    example: 1
+                  limit:
+                    type: integer
+                    example: 50
+                  offset:
+                    type: integer
+                    example: 0
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /v1/unmapped-deposits/{id}/resolve:
+    post:
+      operationId: resolveUnmappedDeposit
+      summary: Resolve a queued deposit
+      description: 'Closes the investigation case of a queued deposit with a resolution note.
+
+        The deposit is not returned to its sender.'
+      tags:
+      - Wallets
+      parameters:
+      - $ref: '#/components/parameters/UnmappedDepositID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - resolution
+              properties:
+                resolution:
+                  type: string
+            example:
+              resolution: credited manually to customer 4711
+      responses:
+        '200':
+          description: The resolved deposit
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnmappedDeposit'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /v1/withdrawals:
     post:
       operationId: initiateWithdrawal
@@ -3354,6 +3242,14 @@ components:
         type: string
         format: uuid
       description: Beneficiary ID
+    UnmappedDepositID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Unmapped deposit ID
   responses:
     BadRequest:
       description: Bad request
@@ -3611,6 +3507,7 @@ components:
               - TRANSFER_ID_INVALID
               - TRANSFER_ID_REQUIRED
               - TRANSFER_NOT_CANCELLABLE
+              - UNMAPPED_DEPOSIT_NOT_PENDING
               - UNSUPPORTED_FIAT_CURRENCY
               - WALLET_ID_REQUIRED
               - NOT_FOUND
@@ -4218,6 +4115,137 @@ components:
           type: string
           enum:
           - submitted
+    MemoPolicy:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        wallet_id:
+          type: string
+          format: uuid
+        format:
+          type: string
+          enum:
+          - customer_id
+          - email
+          - phone
+          - reference
+          - custom
+          description: Shape the memo of an inbound payment has to have
+        pattern:
+          type: string
+          description: Regular expression the memo has to match; only the `custom` format uses it
+        require_memo:
+          type: boolean
+          description: When false a payment without a memo is accepted; a memo that is sent is still validated
+        auto_refund:
+          type: boolean
+          description: When true a deposit that waited longer than the timeout is returned to its sender
+        refund_after_seconds:
+          type: integer
+          description: Timeout before an unmapped deposit is returned to its sender
+        enabled:
+          type: boolean
+          description: When false the rule is stored but not enforced
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    MemoPolicyRequest:
+      type: object
+      required:
+      - format
+      properties:
+        format:
+          type: string
+          enum:
+          - customer_id
+          - email
+          - phone
+          - reference
+          - custom
+        pattern:
+          type: string
+          description: Regular expression the memo has to match; required by the `custom` format
+        require_memo:
+          type: boolean
+          default: true
+        auto_refund:
+          type: boolean
+          default: false
+        refund_after_seconds:
+          type: integer
+          default: 86400
+          description: Timeout before an unmapped deposit is returned to its sender; at most 2592000
+        enabled:
+          type: boolean
+          default: true
+    UnmappedDeposit:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        wallet_id:
+          type: string
+          format: uuid
+        mode:
+          type: string
+          enum:
+          - live
+          - test
+        tx_hash:
+          type: string
+        source_address:
+          type: string
+          description: Stellar account the deposit came from; the refund goes back to it
+        asset:
+          type: string
+        issuer:
+          type: string
+        amount:
+          type: string
+        memo:
+          type: string
+        reason:
+          type: string
+          enum:
+          - missing_memo
+          - invalid_memo
+        status:
+          type: string
+          enum:
+          - pending
+          - refunding
+          - refunded
+          - resolved
+        refund_after:
+          type: string
+          format: date-time
+        refund_tx_hash:
+          type: string
+        resolution:
+          type: string
+        failure_reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
     FiatQuotePreviewResponse:
       type: object
       properties:

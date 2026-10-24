@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/Lumen-Nexora/Nexora/internal/api"
 	"github.com/Lumen-Nexora/Nexora/internal/domain"
@@ -16,6 +18,7 @@ type Handler struct {
 	svc          Service
 	simulation   SimulationService
 	contractSvc  ContractService
+	memoSvc      *MemoPolicyService
 	idem         func(http.Handler) http.Handler
 	guardianGate func(http.Handler) http.Handler
 	closer       *Closer
@@ -33,6 +36,15 @@ func NewHandler(svc Service) *Handler {
 // purely custodial wallets does not expose routes it cannot serve.
 func (h *Handler) WithContractService(contractSvc ContractService) *Handler {
 	h.contractSvc = contractSvc
+	return h
+}
+
+// WithMemoPolicyService enables the inbound memo policy endpoints of a
+// wallet. They are only registered when a memo policy service is wired in,
+// so a deployment that does not enforce memo rules does not expose routes
+// it cannot serve.
+func (h *Handler) WithMemoPolicyService(svc *MemoPolicyService) *Handler {
+	h.memoSvc = svc
 	return h
 }
 
@@ -136,6 +148,12 @@ func (h *Handler) Routes() func(r chi.Router) {
 			gated.Post("/consolidations", h.createConsolidation)
 			gated.Get("/consolidations", h.listConsolidations)
 			gated.Get("/consolidations/{consolidationId}", h.getConsolidation)
+		}
+
+		if h.memoSvc != nil {
+			r.Get("/{id}/memo-policy", h.getMemoPolicy)
+			r.Put("/{id}/memo-policy", h.putMemoPolicy)
+			r.Delete("/{id}/memo-policy", h.deleteMemoPolicy)
 		}
 
 		if h.contractSvc != nil {
@@ -372,158 +390,67 @@ func (h *Handler) addTrustline(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-type closeWalletRequest struct {
-	Justification string `json:"justification" validate:"required"`
-	// Confirm must repeat the wallet's public key.
-	Confirm string `json:"confirm" validate:"required"`
-}
-
-type custodySettingsRequest struct {
-	MasterAddress             string  `json:"master_address" validate:"required"`
-	PrimarySettlementWalletID *string `json:"primary_settlement_wallet_id,omitempty"`
-	// AutoSweepEnabled opts the tenant in to the automated deposit sweep.
-	AutoSweepEnabled bool `json:"auto_sweep_enabled"`
-}
-
-func (h *Handler) closeWallet(w http.ResponseWriter, r *http.Request) {
-	var req closeWalletRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		api.BadRequest(w, "invalid request body")
-		return
-	}
-	if err := api.Validate(req); err != nil {
-		api.BadRequest(w, err.Error())
-		return
-	}
-
-	closure, err := h.closer.Close(r.Context(), CloseRequest{
-		WalletID:      chi.URLParam(r, "id"),
-		Justification: req.Justification,
-		Confirm:       req.Confirm,
-	})
+// getMemoPolicy returns the inbound memo policy of a wallet.
+func (h *Handler) getMemoPolicy(w http.ResponseWriter, r *http.Request) {
+	policy, err := h.memoSvc.GetPolicy(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		// A closure that reached the ledger step and failed there is
-		// returned with its record so the operator sees the reason.
-		if closure != nil && closure.Status == domain.ClosureStatusFailed {
-			api.JSON(w, http.StatusBadGateway, closure)
+		api.WriteError(w, r, err)
+		return
+	}
+	api.JSON(w, http.StatusOK, memoPolicyResponse(policy))
+}
+
+// putMemoPolicy creates or replaces the inbound memo policy of a wallet.
+func (h *Handler) putMemoPolicy(w http.ResponseWriter, r *http.Request) {
+	var req memoPolicyRequest
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			api.BadRequest(w, "invalid request body")
 			return
 		}
-		api.HandleDomainError(w, err)
-		return
 	}
-	api.JSON(w, http.StatusOK, closure)
-}
 
-func (h *Handler) listClosures(w http.ResponseWriter, r *http.Request) {
-	limit, offset := pageParams(r)
-	closures, err := h.closer.List(r.Context(), limit, offset)
-	if err != nil {
-		api.InternalError(w, err)
-		return
+	policy := &domain.MemoPolicy{
+		WalletID:    chi.URLParam(r, "id"),
+		Format:      domain.MemoFormat(strings.ToLower(strings.TrimSpace(req.Format))),
+		Pattern:     strings.TrimSpace(req.Pattern),
+		RequireMemo: true,
+		AutoRefund:  false,
+		Enabled:     true,
 	}
-	api.JSON(w, http.StatusOK, map[string]interface{}{"closures": closures})
-}
-
-func (h *Handler) getClosure(w http.ResponseWriter, r *http.Request) {
-	closure, err := h.closer.Get(r.Context(), chi.URLParam(r, "closureId"))
-	if err != nil {
-		api.HandleDomainError(w, err)
-		return
+	if req.RequireMemo != nil {
+		policy.RequireMemo = *req.RequireMemo
 	}
-	api.JSON(w, http.StatusOK, closure)
-}
-
-func (h *Handler) getCustodySettings(w http.ResponseWriter, r *http.Request) {
-	settings, err := h.closer.GetCustodySettings(r.Context())
-	if err != nil {
-		api.HandleDomainError(w, err)
-		return
+	if req.AutoRefund != nil {
+		policy.AutoRefund = *req.AutoRefund
 	}
-	api.JSON(w, http.StatusOK, settings)
-}
-
-func (h *Handler) putCustodySettings(w http.ResponseWriter, r *http.Request) {
-	var req custodySettingsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		api.BadRequest(w, "invalid request body")
-		return
+	if req.Enabled != nil {
+		policy.Enabled = *req.Enabled
 	}
-	if err := api.Validate(req); err != nil {
-		api.BadRequest(w, err.Error())
-		return
-	}
-	settings, err := h.closer.SetCustodySettings(r.Context(), CustodySettingsInput{
-		MasterAddress:             req.MasterAddress,
-		PrimarySettlementWalletID: req.PrimarySettlementWalletID,
-		AutoSweepEnabled:          req.AutoSweepEnabled,
-	})
-	if err != nil {
-		api.HandleDomainError(w, err)
-		return
-	}
-	api.JSON(w, http.StatusOK, settings)
-}
-
-// createConsolidation previews (dry_run) or accepts a consolidation. An
-// accepted one runs in the background and is returned as 202; a retry with the
-// same idempotency_key and body returns the original operation with 200.
-func (h *Handler) createConsolidation(w http.ResponseWriter, r *http.Request) {
-	var req ConsolidationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		api.BadRequest(w, "invalid request body")
-		return
-	}
-	if req.DryRun {
-		preview, err := h.consolidator.Preview(r.Context(), req)
-		if err != nil {
-			api.HandleDomainError(w, err)
+	if req.RefundAfterSeconds != nil {
+		if *req.RefundAfterSeconds < 0 {
+			api.BadRequest(w, "refund_after_seconds cannot be negative")
 			return
 		}
-		api.JSON(w, http.StatusOK, preview)
-		return
+		policy.RefundAfter = time.Duration(*req.RefundAfterSeconds) * time.Second
 	}
-	op, replayed, err := h.consolidator.Submit(r.Context(), req)
+
+	stored, err := h.memoSvc.PutPolicy(r.Context(), policy)
 	if err != nil {
-		api.HandleDomainError(w, err)
+		writeMemoPolicyError(w, r, err)
 		return
 	}
-	status := http.StatusAccepted
-	if replayed {
-		status = http.StatusOK
-	}
-	api.JSON(w, status, op)
+	api.JSON(w, http.StatusOK, memoPolicyResponse(stored))
 }
 
-func (h *Handler) listConsolidations(w http.ResponseWriter, r *http.Request) {
-	limit, offset := pageParams(r)
-	ops, err := h.consolidator.List(r.Context(), limit, offset)
-	if err != nil {
-		api.InternalError(w, err)
+// deleteMemoPolicy removes the inbound memo policy of a wallet.
+func (h *Handler) deleteMemoPolicy(w http.ResponseWriter, r *http.Request) {
+	if err := h.memoSvc.DeletePolicy(r.Context(), chi.URLParam(r, "id")); err != nil {
+		writeMemoPolicyError(w, r, err)
 		return
 	}
-	api.JSON(w, http.StatusOK, map[string]interface{}{"consolidations": ops})
-}
-
-func (h *Handler) getConsolidation(w http.ResponseWriter, r *http.Request) {
-	op, err := h.consolidator.Get(r.Context(), chi.URLParam(r, "consolidationId"))
-	if err != nil {
-		api.HandleDomainError(w, err)
-		return
-	}
-	api.JSON(w, http.StatusOK, op)
-}
-
-func pageParams(r *http.Request) (limit, offset int) {
-	limit = 50
-	if value := r.URL.Query().Get("limit"); value != "" {
-		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 && parsed <= 100 {
-			limit = parsed
-		}
-	}
-	if value := r.URL.Query().Get("offset"); value != "" {
-		if parsed, err := strconv.Atoi(value); err == nil && parsed >= 0 {
-			offset = parsed
-		}
-	}
-	return limit, offset
+	api.JSON(w, http.StatusOK, map[string]interface{}{
+		"status":    "deleted",
+		"wallet_id": chi.URLParam(r, "id"),
+	})
 }

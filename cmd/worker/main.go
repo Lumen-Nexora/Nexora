@@ -127,6 +127,19 @@ func main() {
 	feeSvc := fees.NewService(feeRepo)
 	networkFeeAccounting := fees.NewNetworkFeeAccounting(feeRepo, fees.NewCoinGeckoHistoricalRateSource())
 	networkFeeRecorder := fees.NewNetworkFeeSettlementRecorder(networkFeeAccounting)
+	// The wallet service signs with the wallet's own stored secret, so the
+	// worker can return an unmapped deposit to its sender.
+	walletSvc := wallet.NewServiceWithNetwork(walletRepo, stellarClient, cfg.MasterEncryptionKey, cfg.StellarLiveNetwork).
+		WithSigner(signer).
+		WithClientResolver(clientResolver).
+		WithSignerResolver(signerResolver).
+		WithIssuers(cfg.StellarUSDCIssuer, cfg.StellarEURCIssuer)
+	auditSvc := audit.NewService(postgres.NewAuditRepo(repoDB))
+	// The inbound memo policy of a wallet is enforced by the indexer: a
+	// payment whose memo does not satisfy the policy is queued for
+	// investigation instead of being credited to a customer, and is returned
+	// to its sender once the policy's refund timeout expires.
+	memoPolicySvc := wallet.NewMemoPolicyService(postgres.NewMemoPolicyRepo(repoDB), walletRepo, walletSvc, auditSvc)
 	engine := settlement.NewEngine(
 		txRepo, walletRepo, feeSvc, stellarClient, signer,
 		cfg.StellarLiveNetwork, map[string]string{
@@ -147,8 +160,8 @@ func main() {
 		StreamMaxWallets:  cfg.IndexerStreamMaxWallets,
 		StreamShardCount:  cfg.IndexerStreamShardCount,
 		StreamShardIndex:  cfg.IndexerStreamShardIndex,
-	})
-	indexerWorker := indexer.NewWorker(idx, cfg)
+	}).WithMemoPolicyGate(memoPolicySvc)
+	indexerWorker := indexer.NewWorker(idx, cfg).WithMemoPolicyService(memoPolicySvc)
 	metricsMux := http.NewServeMux()
 	metricsMux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -449,6 +462,7 @@ func main() {
 	mux.Use(logging.WorkerMiddleware(log.Logger))
 	mux.HandleFunc(queue.TypeProcessTransfer, settlementWorker.HandleProcessTransfer)
 	mux.HandleFunc(queue.TypeSyncLedger, indexerWorker.HandleSyncLedger)
+	mux.HandleFunc(queue.TypeRefundUnmappedDeposits, indexerWorker.HandleRefundUnmappedDeposits)
 	mux.HandleFunc(queue.TypeReconcile, reconcileWorker.HandleReconcile)
 	mux.HandleFunc(queue.TypeBalanceReconcile, reconcileWorker.HandleBalanceReconcile)
 	mux.HandleFunc(queue.TypeLedgerInvariant, reconcileWorker.HandleLedgerInvariant)
@@ -543,6 +557,15 @@ func main() {
 	rateLockExpiryTask := asynq.NewTask(queue.TypeExpireRateLocks, nil)
 	if _, err := scheduler.Register(rateLockExpiryInterval, rateLockExpiryTask); err != nil {
 		log.Fatal().Err(err).Msg("register rate lock expiry scheduler")
+	}
+
+	// The investigation queue is swept every 5 minutes so a deposit that
+	// waited for its refund timeout is returned to its sender shortly after
+	// the timeout expires. The sweep claims a deposit before it pays it, so
+	// a second worker cannot refund the same deposit twice.
+	refundUnmappedTask := asynq.NewTask(queue.TypeRefundUnmappedDeposits, nil, asynq.Queue("low"))
+	if _, err := scheduler.Register("@every 5m", refundUnmappedTask); err != nil {
+		log.Fatal().Err(err).Msg("register unmapped deposit refund scheduler")
 	}
 
 	// The OFAC SDN list is republished on business days; a daily refresh on the

@@ -87,6 +87,7 @@ func New(
 	var tenantDataHandler *tenantdata.Handler
 	var idempotencyHandler *idempotency.Handler
 	var scopeDenialRecorder ScopeDenialRecorder
+	var memoPolicyHandler *wallet.MemoPolicyHandler
 	var geoOptions GeoScreenOptions
 	for _, option := range options {
 		switch value := option.(type) {
@@ -108,6 +109,8 @@ func New(
 			tenantDataHandler = value
 		case *idempotency.Handler:
 			idempotencyHandler = value
+		case *wallet.MemoPolicyHandler:
+			memoPolicyHandler = value
 		case ScopeDenialRecorder:
 			scopeDenialRecorder = value
 		case GeoScreenOptions:
@@ -262,6 +265,13 @@ func New(
 				fiatScope := RequireResourceScope(domain.ScopeFiatRead, domain.ScopeFiatWrite)
 				_ = fiatScope
 				r.With(RequireResourceScope(domain.ScopeWalletsRead, domain.ScopeWalletsWrite)).Route("/wallets", walletHandler.Routes())
+				if memoPolicyHandler != nil {
+					// The memo policy of a wallet is configured and read
+					// with the wallet scopes; the investigation queue holds
+					// the deposits that could not be mapped to a customer.
+					r.With(RequireResourceScope(domain.ScopeWalletsRead, domain.ScopeWalletsWrite)).Route("/memo-policies", memoPolicyHandler.PolicyRoutes())
+					r.With(RequireResourceScope(domain.ScopeWalletsRead, domain.ScopeWalletsWrite)).Route("/unmapped-deposits", memoPolicyHandler.DepositRoutes())
+				}
 				if beneficiaryHandler != nil {
 					r.With(RequireResourceScope(domain.ScopeBeneficiariesRead, domain.ScopeBeneficiariesWrite)).Route("/beneficiaries", beneficiaryHandler.Routes())
 				}
