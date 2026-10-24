@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/Lumen-Nexora/Nexora/internal/fees"
 	"github.com/Lumen-Nexora/Nexora/internal/tenant"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/shopspring/decimal"
 	"github.com/stellar/go/protocols/horizon"
@@ -131,6 +131,10 @@ type mockProvider struct {
 
 func (m *mockProvider) GetRate(_ context.Context, _, _, _ string) (decimal.Decimal, error) {
 	return m.rate, nil
+}
+
+func (m *mockProvider) GetDepth(context.Context, string, string) ([]OrderbookLevel, error) {
+	return []OrderbookLevel{{Price: m.rate, Amount: decimal.NewFromInt(1_000_000_000)}}, nil
 }
 
 func (m *mockProvider) SupportedPairs() []string {
@@ -276,7 +280,7 @@ func TestExecuteConversion_Success(t *testing.T) {
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	wr := newMockWalletRepo(w)
 	cr := newMockConvRepo()
-	svc := NewService(wr, cr, &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", nil, 0)
+	svc := NewService(wr, cr, &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", []Provider{&mockProvider{rate: decimal.NewFromInt(2)}}, 0)
 
 	q := &domain.Quote{
 		ID:         "q-ok-1",
@@ -318,7 +322,7 @@ func TestExecuteConversion_WalletNotFound(t *testing.T) {
 	defer mr.Close()
 
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	svc := NewService(newMockWalletRepo(), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", nil, 0)
+	svc := NewService(newMockWalletRepo(), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", []Provider{&mockProvider{rate: decimal.NewFromInt(2)}}, 0)
 
 	_, err = svc.ExecuteConversion(tenantCtx("org-1"), "w-missing", "q-1", nil, nil)
 	if !errors.Is(err, domain.ErrWalletNotFound) {
@@ -336,7 +340,7 @@ func TestExecuteConversion_CrossTenant(t *testing.T) {
 	// Wallet belongs to org-2
 	w := walletPtr("w-2", "org-2")
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", nil, 0)
+	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", []Provider{&mockProvider{rate: decimal.NewFromInt(2)}}, 0)
 
 	// Quote belongs to org-1
 	q := &domain.Quote{
@@ -368,7 +372,7 @@ func TestExecuteConversion_QuoteExpired(t *testing.T) {
 
 	w := walletPtr("w-1", "org-1")
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", nil, 0)
+	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", []Provider{&mockProvider{rate: decimal.NewFromInt(2)}}, 0)
 
 	q := &domain.Quote{
 		ID:         "q-expired",
@@ -399,7 +403,7 @@ func TestExecuteConversion_QuoteAlreadyUsed(t *testing.T) {
 
 	w := walletPtr("w-1", "org-1")
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", nil, 0)
+	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", []Provider{&mockProvider{rate: decimal.NewFromInt(2)}}, 0)
 
 	q := &domain.Quote{
 		ID:         "q-used",
@@ -430,7 +434,7 @@ func TestExecuteConversion_NonPositiveAmountInQuote(t *testing.T) {
 
 	w := walletPtr("w-1", "org-1")
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", nil, 0)
+	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", []Provider{&mockProvider{rate: decimal.NewFromInt(2)}}, 0)
 
 	q := &domain.Quote{
 		ID:         "q-neg",
@@ -461,7 +465,7 @@ func TestExecuteConversion_NonPositiveToAmountInQuote(t *testing.T) {
 
 	w := walletPtr("w-1", "org-1")
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", nil, 0)
+	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", []Provider{&mockProvider{rate: decimal.NewFromInt(2)}}, 0)
 
 	q := &domain.Quote{
 		ID:         "q-neg-to",
@@ -492,7 +496,7 @@ func TestExecuteConversion_ZeroFromAmountInQuote(t *testing.T) {
 
 	w := walletPtr("w-1", "org-1")
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", nil, 0)
+	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", []Provider{&mockProvider{rate: decimal.NewFromInt(2)}}, 0)
 
 	q := &domain.Quote{
 		ID:         "q-zero",
@@ -524,7 +528,7 @@ func TestExecuteConversion_WalletNilTenantID(t *testing.T) {
 	// Wallet with nil TenantID
 	w := &domain.Wallet{ID: "w-nil", TenantID: nil, PublicKey: "Gw-nil"}
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", nil, 0)
+	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", []Provider{&mockProvider{rate: decimal.NewFromInt(2)}}, 0)
 
 	q := &domain.Quote{
 		ID:         "q-nil-tenant",
@@ -610,7 +614,7 @@ func TestExecuteConversion_QuoteNotFoundInRedis(t *testing.T) {
 
 	w := walletPtr("w-1", "org-1")
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", nil, 0)
+	svc := NewService(newMockWalletRepo(w), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", []Provider{&mockProvider{rate: decimal.NewFromInt(2)}}, 0)
 
 	// Don't store any quote — the Lua script should return QUOTE_EXPIRED
 	_, err = svc.ExecuteConversion(tenantCtx("org-1"), "w-1", "q-missing", nil, nil)
@@ -800,7 +804,7 @@ func TestExecuteConversion_XLMPair(t *testing.T) {
 	w := walletPtr("w-xlm", "org-1")
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	cr := newMockConvRepo()
-	svc := NewService(newMockWalletRepo(w), cr, &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", nil, 0)
+	svc := NewService(newMockWalletRepo(w), cr, &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", []Provider{&mockProvider{rate: decimal.NewFromInt(2)}}, 0)
 
 	q := &domain.Quote{
 		ID:                    "q-xlm-1",
@@ -842,7 +846,7 @@ func TestExecuteConversion_ForeignQuoteLeavesVictimQuoteIntact(t *testing.T) {
 	owner := walletPtr("w-owner", "org-owner")
 	attacker := walletPtr("w-attacker", "org-attacker")
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	svc := NewService(newMockWalletRepo(owner, attacker), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", nil, 0)
+	svc := NewService(newMockWalletRepo(owner, attacker), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", []Provider{&mockProvider{rate: decimal.NewFromInt(2)}}, 0)
 
 	q := &domain.Quote{
 		ID:         "q-victim",
@@ -896,7 +900,7 @@ func TestExecuteConversion_ConcurrentDoubleClaimOnlyOneWins(t *testing.T) {
 
 	owner := walletPtr("w-owner", "org-owner")
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	svc := NewService(newMockWalletRepo(owner), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", nil, 0)
+	svc := NewService(newMockWalletRepo(owner), newMockConvRepo(), &mockAuditRepo{}, &mockFeeSvc{}, &mockStellar{}, rdb, "usdc-issuer", []Provider{&mockProvider{rate: decimal.NewFromInt(2)}}, 0)
 
 	q := &domain.Quote{
 		ID:         "q-race",
@@ -1020,4 +1024,67 @@ func TestService_GetQuote_TriangulationHaltOnAnomaly(t *testing.T) {
 	}
 }
 
+type slippageDepthProvider struct {
+	mockProvider
+	levels []OrderbookLevel
+	err    error
+}
 
+func (p *slippageDepthProvider) GetDepth(context.Context, string, string) ([]OrderbookLevel, error) {
+	return p.levels, p.err
+}
+
+func TestExecuteConversionSlippageBeforeClaim(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		tolerance int
+		wantErr   error
+	}{
+		{"excess impact", 5, domain.ErrSlippageExceeded},
+		{"within tolerance", 100, nil},
+		{"invalid tolerance", 4, ErrSlippageToleranceOutOfBounds},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			mr := miniredis.RunT(t)
+			rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+			t.Cleanup(func() { _ = rdb.Close() })
+			repo := newMockConvRepo()
+			svc := &service{redis: rdb, conversionRepo: repo,
+				walletRepo: newMockWalletRepo(&domain.Wallet{ID: "wallet", TenantID: ptrString("tenant")}),
+				providers: []Provider{&slippageDepthProvider{levels: []OrderbookLevel{
+					{Price: decimal.NewFromInt(1), Amount: decimal.NewFromInt(100)},
+					{Price: decimal.RequireFromString("0.99"), Amount: decimal.NewFromInt(100)},
+				}}},
+			}
+			storeQuoteJSON(t, mr, &domain.Quote{ID: "quote", OrgID: "tenant", FromAsset: "USDC", ToAsset: "XLM",
+				FromAmount: decimal.NewFromInt(200), ToAmount: decimal.NewFromInt(200), ExpiresAt: time.Now().Add(time.Minute)})
+			_, err := svc.ExecuteConversion(tenantCtx("tenant"), "wallet", "quote", nil, &tc.tolerance)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("error=%v want=%v", err, tc.wantErr)
+			}
+			raw, _ := mr.Get(quoteKeyPrefix + "quote")
+			var q domain.Quote
+			if err := json.Unmarshal([]byte(raw), &q); err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantErr != nil {
+				if len(repo.conversions) != 0 || q.Used {
+					t.Fatal("rejected trade persisted or consumed quote")
+				}
+			} else if len(repo.conversions) != 1 || !q.Used {
+				t.Fatal("allowed trade was not persisted and claimed")
+			}
+		})
+	}
+}
+
+func TestCheckSlippageUnavailable(t *testing.T) {
+	svc := &service{}
+	if err := svc.checkSlippage(context.Background(), "USDC", "XLM", decimal.NewFromInt(1), nil); !errors.Is(err, ErrDepthUnavailable) {
+		t.Fatalf("missing depth: %v", err)
+	}
+	svc.providers = []Provider{&slippageDepthProvider{err: errors.New("offline")}}
+	if err := svc.checkSlippage(context.Background(), "USDC", "XLM", decimal.NewFromInt(1), nil); !errors.Is(err, ErrDepthUnavailable) {
+		t.Fatalf("failed depth: %v", err)
+	}
+}

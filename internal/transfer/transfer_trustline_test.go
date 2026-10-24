@@ -121,6 +121,17 @@ func (m *mockStellarClient) Offers(accountID string, limit uint) ([]horizon.Offe
 
 type mockFeeRepo struct{}
 
+func (m *mockFeeRepo) RecordNetworkFee(context.Context, *domain.NetworkFeeCharge) error { return nil }
+func (m *mockFeeRepo) GetNetworkFeeByTxHash(context.Context, string) (*domain.NetworkFeeCharge, error) {
+	return nil, nil
+}
+func (m *mockFeeRepo) GetNetworkFeeUsage(context.Context, string, time.Time, time.Time) (*domain.NetworkFeeUsage, error) {
+	return &domain.NetworkFeeUsage{}, nil
+}
+func (m *mockFeeRepo) GetMonthlyNetworkFeeCOGS(context.Context, time.Time, time.Time) (*domain.NetworkFeeCOGSReport, error) {
+	return &domain.NetworkFeeCOGSReport{}, nil
+}
+
 func (m *mockFeeRepo) GetSchedule(_ context.Context, _ *string, _ string) (*domain.FeeSchedule, error) {
 	return &domain.FeeSchedule{TransferFeeBps: 10}, nil
 }

@@ -184,6 +184,7 @@ func TestAdminRoutesRequireOwnerOrAdmin(t *testing.T) {
 		{http.MethodPost, "/v1/admin/anchors", false},
 		{http.MethodGet, "/v1/admin/reconciliation/summary", false},
 		{http.MethodPost, "/v1/admin/reconciliation/run", false},
+		{http.MethodPost, "/v1/admin/reconciliation/three-way", false},
 		{http.MethodGet, "/v1/admin/treasury/balances", true},
 		{http.MethodPost, "/v1/admin/treasury/sweep", true},
 		{http.MethodPut, "/v1/admin/treasury/config", true},

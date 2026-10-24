@@ -79,6 +79,7 @@ func New(
 
 	rateCfg := DefaultAuthRateLimitConfig()
 	var beneficiaryHandler *beneficiary.Handler
+	var travelRuleHandler *compliance.TravelRuleHandler
 	var walletBalanceAlertHandler *wallet_balance_alert.Handler
 	var paymentLinkHandler *paymentlink.Handler
 	var refundHandler *refund.Handler
@@ -87,12 +88,15 @@ func New(
 	var idempotencyHandler *idempotency.Handler
 	var scopeDenialRecorder ScopeDenialRecorder
 	var memoPolicyHandler *wallet.MemoPolicyHandler
+	var geoOptions GeoScreenOptions
 	for _, option := range options {
 		switch value := option.(type) {
 		case AuthRateLimitConfig:
 			rateCfg = value
 		case *beneficiary.Handler:
 			beneficiaryHandler = value
+		case *compliance.TravelRuleHandler:
+			travelRuleHandler = value
 		case *wallet_balance_alert.Handler:
 			walletBalanceAlertHandler = value
 		case *paymentlink.Handler:
@@ -109,6 +113,8 @@ func New(
 			memoPolicyHandler = value
 		case ScopeDenialRecorder:
 			scopeDenialRecorder = value
+		case GeoScreenOptions:
+			geoOptions = value
 		}
 	}
 	authLimiter := NewAuthRateLimiter(rateCfg)
@@ -156,6 +162,16 @@ func New(
 	}
 
 	r.Route("/v1", func(r chi.Router) {
+		// Signed VASP callbacks authenticate with the configured Ed25519 key,
+		// so this endpoint intentionally sits outside tenant-session auth.
+		if travelRuleHandler != nil {
+			r.Route("/travel-rule", travelRuleHandler.Routes())
+		}
+		// Geo screening runs before authentication and tenant routing so a
+		// sanctioned or anonymized caller cannot probe authenticated endpoints.
+		if geoOptions.Screener != nil {
+			r.Use(GeoScreening(geoOptions))
+		}
 		// Unauthenticated public endpoints
 		if paymentLinkHandler != nil {
 			r.Route("/public/payment-links", paymentLinkHandler.PublicRoutes())
@@ -201,6 +217,7 @@ func New(
 					r.Use(RequireScope(domain.ScopeAuditRead))
 					r.Get("/", auditHandler.List)
 					r.Get("/export", auditHandler.Export)
+					r.Get("/proofs/{tx_id}", auditHandler.Proof)
 				})
 			}
 

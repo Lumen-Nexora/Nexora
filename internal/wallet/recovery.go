@@ -15,6 +15,7 @@ import (
 
 	"github.com/Lumen-Nexora/Nexora/internal/compliance"
 	"github.com/Lumen-Nexora/Nexora/internal/crypto"
+	"github.com/Lumen-Nexora/Nexora/internal/stellar"
 	"github.com/google/uuid"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/txnbuild"
@@ -332,7 +333,7 @@ func (s *recoveryService) RegisterAccount(ctx context.Context, tenantID, address
 	}
 
 	// Encrypt raw seed at rest with AES-256-GCM
-	encSeed, err := crypto.Encrypt([]byte(kp.Seed()), s.masterKey)
+	encSeed, err := crypto.SealSecret(ctx, []byte(kp.Seed()), s.masterKey)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt recovery signing key: %w", err)
 	}
@@ -585,18 +586,9 @@ func (s *recoveryService) SignTransaction(ctx context.Context, tenantID, address
 	}
 
 	// 3. Decrypt Recovery Signer Secret Key
-	decSeed, err := crypto.Decrypt([]byte(acct.EncryptedSignerKey), s.masterKey)
-	if err != nil {
-		return nil, fmt.Errorf("decrypt recovery signer key: %w", err)
-	}
-
-	fullKP, err := keypair.ParseFull(string(decSeed))
-	if err != nil {
-		return nil, fmt.Errorf("parse recovery keypair: %w", err)
-	}
-
-	// 4. Sign Transaction
-	signedTx, err := tx.Sign(s.networkPassphrase, fullKP)
+	// 4. Sign Transaction. The seed is decrypted only for this signature and
+	// zeroized right after it.
+	signedTx, err := stellar.SignWithSealedSecret(ctx, tx, s.networkPassphrase, []byte(acct.EncryptedSignerKey), s.masterKey)
 	if err != nil {
 		return nil, fmt.Errorf("sign transaction: %w", err)
 	}
@@ -606,10 +598,15 @@ func (s *recoveryService) SignTransaction(ctx context.Context, tenantID, address
 		return nil, fmt.Errorf("encode signed transaction: %w", err)
 	}
 
+	signerKP, err := keypair.ParseAddress(acct.SignerKey)
+	if err != nil {
+		return nil, fmt.Errorf("parse recovery signer address: %w", err)
+	}
+
 	// Extract the signature matching our public key
 	var rawSig string
 	for _, s := range signedTx.Signatures() {
-		hint := fullKP.Hint()
+		hint := signerKP.Hint()
 		if s.Hint == xdr.SignatureHint(hint) {
 			rawSig = base64.StdEncoding.EncodeToString(s.Signature)
 			break
@@ -622,7 +619,7 @@ func (s *recoveryService) SignTransaction(ctx context.Context, tenantID, address
 	return &SignatureResult{
 		NetworkPassphrase: s.networkPassphrase,
 		Signature:         rawSig,
-		SignerPublicKey:   fullKP.Address(),
+		SignerPublicKey:   signerKP.Address(),
 		SignedTransaction: signedXDR,
 	}, nil
 }

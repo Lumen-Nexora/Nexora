@@ -12,6 +12,14 @@ const (
 	AccountTypeOrganization AccountType = "organization"
 )
 
+type RiskCategory string
+
+const (
+	RiskCategoryLow    RiskCategory = "low"
+	RiskCategoryMedium RiskCategory = "medium"
+	RiskCategoryHigh   RiskCategory = "high"
+)
+
 const (
 	// defaultIndividualWalletLimit and defaultOrganizationWalletLimit apply
 	// when a tenant row has no explicit max_wallets.
@@ -20,18 +28,19 @@ const (
 )
 
 type Tenant struct {
-	ID                   string      `json:"id" db:"id"`
-	Name                 string      `json:"name" db:"name"`
-	Email                string      `json:"email,omitempty" db:"email"`
-	SigningSecret        string      `json:"signing_secret,omitempty" db:"signing_secret"`
-	AccountType          AccountType `json:"account_type" db:"account_type"`
-	MaxWallets           int         `json:"max_wallets" db:"max_wallets"`
-	MaxTransfersPerMonth *int        `json:"max_transfers_per_month" db:"max_transfers_per_month"`
-	MaxTransfersPerDay   *int        `json:"max_transfers_per_day" db:"max_transfers_per_day"`
-	MaxWithdrawalsPerDay *int        `json:"max_withdrawals_per_day" db:"max_withdrawals_per_day"`
-	MaxWebhooks          int         `json:"max_webhooks" db:"max_webhooks"`
-	CreatedAt            time.Time   `json:"created_at" db:"created_at"`
-	UpdatedAt            time.Time   `json:"updated_at" db:"updated_at"`
+	ID                   string       `json:"id" db:"id"`
+	Name                 string       `json:"name" db:"name"`
+	Email                string       `json:"email,omitempty" db:"email"`
+	SigningSecret        string       `json:"signing_secret,omitempty" db:"signing_secret"`
+	AccountType          AccountType  `json:"account_type" db:"account_type"`
+	RiskCategory         RiskCategory `json:"risk_category" db:"risk_category"`
+	MaxWallets           int          `json:"max_wallets" db:"max_wallets"`
+	MaxTransfersPerMonth *int         `json:"max_transfers_per_month" db:"max_transfers_per_month"`
+	MaxTransfersPerDay   *int         `json:"max_transfers_per_day" db:"max_transfers_per_day"`
+	MaxWithdrawalsPerDay *int         `json:"max_withdrawals_per_day" db:"max_withdrawals_per_day"`
+	MaxWebhooks          int          `json:"max_webhooks" db:"max_webhooks"`
+	CreatedAt            time.Time    `json:"created_at" db:"created_at"`
+	UpdatedAt            time.Time    `json:"updated_at" db:"updated_at"`
 }
 
 // GetTransferLimit returns the tenant's monthly transfer cap. A nil value

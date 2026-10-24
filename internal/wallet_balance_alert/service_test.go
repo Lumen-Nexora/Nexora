@@ -4,16 +4,24 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 type mockRepo struct {
-	alerts    map[string]*domain.WalletBalanceAlert
-	events    map[string][]*domain.WalletBalanceAlertEvent
-	createErr error
-	getErr    error
+	alerts          map[string]*domain.WalletBalanceAlert
+	events          map[string][]*domain.WalletBalanceAlertEvent
+	cooldowns       map[string]cooldownRecord
+	createErr       error
+	getErr          error
+}
+
+type cooldownRecord struct {
+	lastTriggeredAt time.Time
+	cooldownWindow  int
 }
 
 func (m *mockRepo) Create(ctx context.Context, alert *domain.WalletBalanceAlert) error {
@@ -70,6 +78,23 @@ func (m *mockRepo) GetActiveAlertsForWallet(ctx context.Context, walletID string
 	return result, nil
 }
 
+func (m *mockRepo) GetCooldown(ctx context.Context, alertID, walletID, assetCode, assetIssuer string) (time.Time, int, bool, error) {
+	key := alertID + ":" + walletID + ":" + assetCode + ":" + assetIssuer
+	if cd, ok := m.cooldowns[key]; ok {
+		return cd.lastTriggeredAt, cd.cooldownWindow, true, nil
+	}
+	return time.Time{}, 0, false, nil
+}
+
+func (m *mockRepo) UpsertCooldown(ctx context.Context, alertID, walletID, assetCode, assetIssuer string, lastTriggeredAt time.Time, cooldownWindow int) error {
+	key := alertID + ":" + walletID + ":" + assetCode + ":" + assetIssuer
+	m.cooldowns[key] = cooldownRecord{
+		lastTriggeredAt: lastTriggeredAt,
+		cooldownWindow:  cooldownWindow,
+	}
+	return nil
+}
+
 type mockAudit struct{}
 
 func (m *mockAudit) Record(ctx context.Context, event *domain.AuditEvent) error {
@@ -77,7 +102,7 @@ func (m *mockAudit) Record(ctx context.Context, event *domain.AuditEvent) error 
 }
 
 func TestService_Create(t *testing.T) {
-	repo := &mockRepo{alerts: make(map[string]*domain.WalletBalanceAlert), events: make(map[string][]*domain.WalletBalanceAlertEvent)}
+	repo := &mockRepo{alerts: make(map[string]*domain.WalletBalanceAlert), events: make(map[string][]*domain.WalletBalanceAlertEvent), cooldowns: make(map[string]cooldownRecord)}
 	audit := &mockAudit{}
 	svc := NewService(repo, audit)
 
@@ -136,7 +161,7 @@ func TestService_Create(t *testing.T) {
 }
 
 func TestService_Update(t *testing.T) {
-	repo := &mockRepo{alerts: make(map[string]*domain.WalletBalanceAlert), events: make(map[string][]*domain.WalletBalanceAlertEvent)}
+	repo := &mockRepo{alerts: make(map[string]*domain.WalletBalanceAlert), events: make(map[string][]*domain.WalletBalanceAlertEvent), cooldowns: make(map[string]cooldownRecord)}
 	audit := &mockAudit{}
 	svc := NewService(repo, audit)
 
@@ -184,6 +209,193 @@ func TestService_Update(t *testing.T) {
 		_, err := svc.Update(ctx, alert.ID, "-5.00", "")
 		if !errors.Is(err, ErrInvalidThreshold) {
 			t.Errorf("expected ErrInvalidThreshold, got %v", err)
+		}
+	})
+}
+
+type mockWebhook struct {
+	dispatchedEvents []string
+	dispatchedPayloads []map[string]interface{}
+}
+
+func (m *mockWebhook) Dispatch(ctx context.Context, eventType string, payload interface{}) error {
+	m.dispatchedEvents = append(m.dispatchedEvents, eventType)
+	m.dispatchedPayloads = append(m.dispatchedPayloads, payload.(map[string]interface{}))
+	return nil
+}
+
+func TestService_EvaluateWalletBalances(t *testing.T) {
+	repo := &mockRepo{alerts: make(map[string]*domain.WalletBalanceAlert), events: make(map[string][]*domain.WalletBalanceAlertEvent), cooldowns: make(map[string]cooldownRecord)}
+	audit := &mockAudit{}
+	webhook := &mockWebhook{}
+	svc := NewServiceWithWebhook(repo, audit, webhook, 3600)
+
+	t.Run("triggers alert when balance below threshold", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = context.WithValue(ctx, "tenant_id", uuid.NewString())
+		ctx = context.WithValue(ctx, "mode", domain.ModeLive)
+
+		alert, _ := svc.Create(ctx, "wallet-123", "USDC", "issuer-123", "100.00")
+
+		balances := map[string]decimal.Decimal{
+			"USDC": decimal.RequireFromString("50.00"),
+		}
+
+		err := svc.EvaluateWalletBalances(ctx, "wallet-123", balances)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		events := repo.events[alert.ID]
+		if len(events) != 1 {
+			t.Errorf("expected 1 event, got %d", len(events))
+		}
+
+		if len(webhook.dispatchedEvents) != 1 {
+			t.Errorf("expected 1 webhook dispatch, got %d", len(webhook.dispatchedEvents))
+		}
+
+		if webhook.dispatchedEvents[0] != domain.EventWalletBalanceLow {
+			t.Errorf("expected event %s, got %s", domain.EventWalletBalanceLow, webhook.dispatchedEvents[0])
+		}
+	})
+
+	t.Run("does not trigger when balance above threshold", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = context.WithValue(ctx, "tenant_id", uuid.NewString())
+		ctx = context.WithValue(ctx, "mode", domain.ModeLive)
+
+		alert, _ := svc.Create(ctx, "wallet-456", "XLM", "", "50.00")
+
+		balances := map[string]decimal.Decimal{
+			"XLM": decimal.RequireFromString("100.00"),
+		}
+
+		err := svc.EvaluateWalletBalances(ctx, "wallet-456", balances)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		events := repo.events[alert.ID]
+		if len(events) != 0 {
+			t.Errorf("expected 0 events, got %d", len(events))
+		}
+	})
+
+	t.Run("respects cooldown window", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = context.WithValue(ctx, "tenant_id", uuid.NewString())
+		ctx = context.WithValue(ctx, "mode", domain.ModeLive)
+
+		_, _ = svc.Create(ctx, "wallet-789", "EURC", "issuer-456", "100.00")
+
+		balances := map[string]decimal.Decimal{
+			"EURC": decimal.RequireFromString("50.00"),
+		}
+
+		webhook.dispatchedEvents = nil
+		webhook.dispatchedPayloads = nil
+
+		err := svc.EvaluateWalletBalances(ctx, "wallet-789", balances)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		if len(webhook.dispatchedEvents) != 1 {
+			t.Errorf("expected 1 webhook dispatch on first trigger, got %d", len(webhook.dispatchedEvents))
+		}
+
+		err = svc.EvaluateWalletBalances(ctx, "wallet-789", balances)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		if len(webhook.dispatchedEvents) != 1 {
+			t.Errorf("expected no additional webhook dispatch during cooldown, got %d", len(webhook.dispatchedEvents))
+		}
+	})
+
+	t.Run("tenant isolation - only checks tenant alerts", func(t *testing.T) {
+		tenant1ID := uuid.NewString()
+		tenant2ID := uuid.NewString()
+
+		ctx1 := context.Background()
+		ctx1 = context.WithValue(ctx1, "tenant_id", tenant1ID)
+		ctx1 = context.WithValue(ctx1, "mode", domain.ModeLive)
+
+		ctx2 := context.Background()
+		ctx2 = context.WithValue(ctx2, "tenant_id", tenant2ID)
+		ctx2 = context.WithValue(ctx2, "mode", domain.ModeLive)
+
+		alert1, _ := svc.Create(ctx1, "wallet-tenant1", "USDC", "issuer-123", "100.00")
+		_, _ = svc.Create(ctx2, "wallet-tenant2", "USDC", "issuer-123", "100.00")
+
+		balances := map[string]decimal.Decimal{
+			"USDC": decimal.RequireFromString("50.00"),
+		}
+
+		webhook.dispatchedEvents = nil
+
+		err := svc.EvaluateWalletBalances(ctx1, "wallet-tenant1", balances)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		events1 := repo.events[alert1.ID]
+		if len(events1) != 1 {
+			t.Errorf("expected 1 event for tenant1, got %d", len(events1))
+		}
+
+		if len(webhook.dispatchedEvents) != 1 {
+			t.Errorf("expected 1 webhook dispatch for tenant1, got %d", len(webhook.dispatchedEvents))
+		}
+	})
+
+	t.Run("threshold boundary condition - equal to threshold", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = context.WithValue(ctx, "tenant_id", uuid.NewString())
+		ctx = context.WithValue(ctx, "mode", domain.ModeLive)
+
+		alert, _ := svc.Create(ctx, "wallet-boundary", "USDC", "issuer-123", "100.00")
+
+		balances := map[string]decimal.Decimal{
+			"USDC": decimal.RequireFromString("100.00"),
+		}
+
+		webhook.dispatchedEvents = nil
+
+		err := svc.EvaluateWalletBalances(ctx, "wallet-boundary", balances)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		events := repo.events[alert.ID]
+		if len(events) != 0 {
+			t.Errorf("expected 0 events when balance equals threshold, got %d", len(events))
+		}
+	})
+
+	t.Run("threshold boundary condition - one stroop below", func(t *testing.T) {
+		ctx := context.Background()
+		ctx = context.WithValue(ctx, "tenant_id", uuid.NewString())
+		ctx = context.WithValue(ctx, "mode", domain.ModeLive)
+
+		alert, _ := svc.Create(ctx, "wallet-boundary2", "USDC", "issuer-123", "100.00")
+
+		balances := map[string]decimal.Decimal{
+			"USDC": decimal.RequireFromString("99.9999999"),
+		}
+
+		webhook.dispatchedEvents = nil
+
+		err := svc.EvaluateWalletBalances(ctx, "wallet-boundary2", balances)
+		if err != nil {
+			t.Fatalf("expected no error, got %v", err)
+		}
+
+		events := repo.events[alert.ID]
+		if len(events) != 1 {
+			t.Errorf("expected 1 event when balance is below threshold, got %d", len(events))
 		}
 	})
 }

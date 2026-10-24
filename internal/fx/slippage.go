@@ -1,6 +1,7 @@
 package fx
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -15,10 +16,10 @@ const (
 )
 
 var (
-	MinSlippagePct = decimal.NewFromFloat(0.05)
-	MaxSlippagePct = decimal.NewFromFloat(5.0)
+	MinSlippagePct = decimal.New(5, -2)
+	MaxSlippagePct = decimal.NewFromInt(5)
 
-	ErrSlippageToleranceOutOfBounds = fmt.Errorf("slippage tolerance must be between 0.05%% and 5.0%% (5 to 500 bps)")
+	ErrSlippageToleranceOutOfBounds = errors.New("slippage tolerance must be between 0.05% and 5.0% (5 to 500 bps)")
 	ErrInsufficientLiquidityDepth   = fmt.Errorf("insufficient orderbook liquidity depth for trade size")
 	ErrInvalidTradeAmount           = fmt.Errorf("trade amount must be positive")
 	ErrEmptyOrderbook               = fmt.Errorf("orderbook contains no liquidity levels")
@@ -90,7 +91,7 @@ func (e *SlippageExceededError) Error() string {
 }
 
 func (e *SlippageExceededError) Is(target error) bool {
-	return target == domain.ErrSlippageExceeded || errors.Is(target, domain.ErrSlippageExceeded)
+	return target == domain.ErrSlippageExceeded
 }
 
 // ValidateSlippageTolerance checks whether a tenant-specified tolerance percentage
@@ -173,7 +174,7 @@ func CalculatePriceImpact(tradeAmount decimal.Decimal, levels []OrderbookLevel) 
 	diff := effectivePrice.Sub(topPrice).Abs()
 	impactFraction := diff.Div(topPrice)
 	impactPct = impactFraction.Mul(decimal.NewFromInt(100))
-	impactBps = int(impactFraction.Mul(decimal.NewFromInt(10000)).IntPart())
+	impactBps = int(impactFraction.Mul(decimal.NewFromInt(10000)).Ceil().IntPart())
 
 	return effectivePrice, topPrice, impactPct, impactBps, nil
 }
@@ -207,7 +208,7 @@ func (g *SlippageGuard) Check(tradeSize decimal.Decimal, userToleranceBps *int, 
 		TolerancePct:   tolerancePct,
 		ToleranceBps:   toleranceBps,
 		Tier:           tier.Name,
-		Allowed:        impactBps <= toleranceBps,
+		Allowed:        impactPct.LessThanOrEqual(tolerancePct),
 	}
 
 	if !calc.Allowed {
@@ -216,3 +217,11 @@ func (g *SlippageGuard) Check(tradeSize decimal.Decimal, userToleranceBps *int, 
 
 	return &calc, nil
 }
+
+// DepthProvider supplies current executable bids, best price first. Prices are
+// destination units per source unit; amounts are expressed in source units.
+type DepthProvider interface {
+	GetDepth(ctx context.Context, from, to string) ([]OrderbookLevel, error)
+}
+
+var ErrDepthUnavailable = errors.New("current orderbook depth is unavailable")

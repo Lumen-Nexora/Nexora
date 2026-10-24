@@ -9,11 +9,45 @@ import (
 )
 
 type Worker struct {
-	service *Service
+	service   *Service
+	invariant *InvariantChecker
 }
 
 func NewWorker(service *Service) *Worker {
 	return &Worker{service: service}
+}
+
+// WithInvariantChecker enables HandleLedgerInvariant. Without one the task is
+// a no-op, so the handler can be registered unconditionally.
+func (w *Worker) WithInvariantChecker(checker *InvariantChecker) *Worker {
+	w.invariant = checker
+	return w
+}
+
+// HandleLedgerInvariant runs the zero-sum ledger invariant check:
+// Sum(TenantBalances) + AccumulatedFees == PooledReserveBalances. It is
+// registered as a periodic Asynq task every 60 seconds on the low-priority
+// queue. A violation pages and halts automated sweeps but is not a task
+// failure; only an evaluation error is returned. The task is enqueued with
+// no retries, so a failed run is simply superseded by the next tick.
+func (w *Worker) HandleLedgerInvariant(ctx context.Context, _ *asynq.Task) error {
+	if w.invariant == nil {
+		return nil
+	}
+	report, err := w.invariant.Check(ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("reconcile: ledger invariant check failed")
+		return err
+	}
+	if !report.Configured {
+		return nil
+	}
+	log.Debug().
+		Int("assets", len(report.Assets)).
+		Int("violations", len(report.Violations)).
+		Bool("sweeps_halted", report.SweepsHalted).
+		Msg("reconcile: ledger invariant check complete")
+	return nil
 }
 
 // HandleReconcile runs the full pending + confirmed reconciliation pass.
@@ -23,6 +57,12 @@ func (w *Worker) HandleReconcile(ctx context.Context, _ *asynq.Task) error {
 	if err := w.service.RunAll(ctx); err != nil {
 		log.Error().Err(err).Msg("reconcile: scheduled run failed")
 		return err
+	}
+	// Re-evaluate transient discrepancies deferred by this or earlier passes.
+	// A failure here never fails the scheduled run: unresolved observations
+	// stay put and are retried next cycle, bounded by the remediator's max age.
+	if _, err := w.service.RunAutoRemediation(ctx); err != nil {
+		log.Error().Err(err).Msg("reconcile: auto-remediation pass failed")
 	}
 	log.Info().Msg("reconcile: scheduled run complete")
 	return nil

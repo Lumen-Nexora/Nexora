@@ -1,0 +1,4 @@
+DROP TRIGGER IF EXISTS trg_reconciliation_transient_events_append_only ON reconciliation_transient_events;
+DROP FUNCTION IF EXISTS reconciliation_transient_events_append_only();
+DROP TABLE IF EXISTS reconciliation_transient_events;
+DROP TABLE IF EXISTS reconciliation_transient_observations;

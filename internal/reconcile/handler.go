@@ -16,14 +16,26 @@ import (
 )
 
 type Handler struct {
-	svc   *Service
-	audit interface {
+	svc            *Service
+	threeWay       *ThreeWayService
+	readSettlement SettlementReportReader
+	audit          interface {
 		Log(r *http.Request, action, resourceType, resourceID string, metadata map[string]interface{})
 	}
 }
 
 func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
+}
+
+func (h *Handler) WithThreeWay(service *ThreeWayService, read SettlementReportReader) *Handler {
+	h.threeWay = service
+	h.readSettlement = read
+	return h
+}
+
+func (h *Handler) threeWayReport(w http.ResponseWriter, r *http.Request) {
+	(&threeWayHandler{threeWay: h.threeWay, readSettlement: h.readSettlement, audit: h.audit}).ServeHTTP(w, r)
 }
 
 func (h *Handler) WithAuditLogger(audit interface {
@@ -35,6 +47,7 @@ func (h *Handler) WithAuditLogger(audit interface {
 
 func (h *Handler) AdminRoutes() func(r chi.Router) {
 	return func(r chi.Router) {
+		r.Post("/reconciliation/three-way", h.threeWayReport)
 		r.Get("/reconciliation/summary", h.summary)
 		r.Get("/reconciliation/drift", h.drift)
 		r.Get("/reconciliation/discrepancies", h.discrepancies)

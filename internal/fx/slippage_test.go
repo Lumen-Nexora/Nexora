@@ -195,3 +195,59 @@ func BenchmarkSlippageGuard_Check(b *testing.B) {
 		_, _ = guard.Check(tradeSize, &tolerance, levels)
 	}
 }
+
+func TestSlippageGuard_FractionalBasisPoints(t *testing.T) {
+	tolerance := 5
+	for _, tc := range []struct {
+		price   string
+		allowed bool
+	}{
+		{"1.001", true},     // 5 bps exactly after filling half at the top price.
+		{"1.001001", false}, // 5.005 bps must not truncate to 5.
+	} {
+		t.Run(tc.price, func(t *testing.T) {
+			levels := []OrderbookLevel{
+				{Price: decimal.NewFromInt(1), Amount: decimal.NewFromInt(1)},
+				{Price: decimal.RequireFromString(tc.price), Amount: decimal.NewFromInt(1)},
+			}
+			calc, err := NewSlippageGuard().Check(decimal.NewFromInt(2), &tolerance, levels)
+			if calc == nil || calc.Allowed != tc.allowed || (err == nil) != tc.allowed {
+				t.Fatalf("calc=%+v err=%v", calc, err)
+			}
+		})
+	}
+}
+
+func TestSlippageGuard_TierDefaultsAndOverrides(t *testing.T) {
+	for _, tc := range []struct {
+		amount int64
+		tier   string
+		bps    int
+	}{
+		{1, "Retail", 50}, {10000, "Retail", 50}, {10001, "Commercial", 100},
+		{100000, "Commercial", 100}, {100001, "Institutional", 200}, {2000000000, "Institutional", 200},
+	} {
+		levels := []OrderbookLevel{{Price: decimal.NewFromInt(1), Amount: decimal.NewFromInt(tc.amount)}}
+		calc, err := NewSlippageGuard().Check(decimal.NewFromInt(tc.amount), nil, levels)
+		if err != nil || calc.Tier != tc.tier || calc.ToleranceBps != tc.bps {
+			t.Fatalf("amount %d: calc=%+v err=%v", tc.amount, calc, err)
+		}
+		for _, tolerance := range []int{5, 500} {
+			calc, err = NewSlippageGuard().Check(decimal.NewFromInt(tc.amount), &tolerance, levels)
+			if err != nil || calc.ToleranceBps != tolerance {
+				t.Fatalf("override %d: calc=%+v err=%v", tolerance, calc, err)
+			}
+		}
+	}
+}
+
+func TestCalculatePriceImpact_DescendingBids(t *testing.T) {
+	levels := []OrderbookLevel{
+		{Price: decimal.NewFromInt(2), Amount: decimal.NewFromInt(100)},
+		{Price: decimal.RequireFromString("1.98"), Amount: decimal.NewFromInt(100)},
+	}
+	effective, _, pct, bps, err := CalculatePriceImpact(decimal.NewFromInt(200), levels)
+	if err != nil || !effective.Equal(decimal.RequireFromString("1.99")) || !pct.Equal(decimal.RequireFromString("0.5")) || bps != 50 {
+		t.Fatalf("effective=%s pct=%s bps=%d err=%v", effective, pct, bps, err)
+	}
+}

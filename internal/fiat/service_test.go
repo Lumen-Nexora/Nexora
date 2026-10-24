@@ -215,6 +215,8 @@ func (m *mockFXService) GetRates(ctx context.Context, from, to string) (*fx.Rate
 	return nil, nil
 }
 
+func (m *mockFXService) WithMarginEngine(fx.MarginEngine) fx.Service { return m }
+
 func (m *mockFXService) BindQuoteToTransfer(ctx context.Context, quoteID, transferID, expectedTenantID string) (*domain.Quote, error) {
 	if m.err != nil {
 		return nil, m.err

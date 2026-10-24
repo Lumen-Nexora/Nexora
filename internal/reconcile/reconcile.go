@@ -25,7 +25,7 @@ import (
 const (
 	reconcileInterval     = 1 * time.Hour
 	pendingCheckThreshold = 2 * time.Minute
-	stuckThreshold        = 10 * time.Minute
+	stuckThreshold        = 2 * time.Minute
 	maxRequeues           = 3
 	pageSize              = 100
 )
@@ -105,6 +105,16 @@ type taskQueue interface {
 	Enqueue(context.Context, string, interface{}) error
 }
 
+type VelocityLimiter interface {
+	Reserve(context.Context, domain.ScreeningRequest) error
+	Finalize(context.Context, string, string, string) error
+	Rollback(context.Context, string, string, string) error
+}
+
+type TenantLookup interface {
+	GetByID(context.Context, string) (*domain.Tenant, error)
+}
+
 // WalletLookup resolves a wallet ID to its Stellar public key. Implemented by
 // postgres.WalletRepo. Used so reconciliation can require that a Horizon
 // payment operation's exact source/destination accounts match the wallets
@@ -127,9 +137,13 @@ type Service struct {
 	driftThreshold    decimal.Decimal
 	assetRegistry     *assets.Registry
 	platformFeeWallet string
+	velocity          VelocityLimiter
+	tenantLookup      TenantLookup
 	driftRepo         DriftRepository
 	driftMu           sync.RWMutex
 	currentDrift      map[string]DriftSnapshot
+	fraudDetector     *FraudDetector
+	autoRemediator    *AutoRemediator
 }
 
 func NewService(
@@ -173,6 +187,13 @@ func NewService(
 // review, while the drift threshold decides what pages an operator.
 func (s *Service) WithDriftThreshold(threshold decimal.Decimal) *Service {
 	s.driftThreshold = threshold
+	return s
+}
+
+// WithFraudDetector attaches the discrepancy anomaly detector. It is optional:
+// when nil, reconciliation keeps its pre-fraud-detection behaviour.
+func (s *Service) WithFraudDetector(detector *FraudDetector) *Service {
+	s.fraudDetector = detector
 	return s
 }
 
@@ -355,6 +376,7 @@ func (s *Service) checkPendingTransaction(ctx context.Context, tx *domain.Transa
 			}
 			return true, false, fmt.Errorf("update tx %s to confirmed: %w", tx.ID, updateErr)
 		}
+		s.finalizeVelocity(ctx, tx)
 		log.Info().Str("tx_id", tx.ID).Str("tx_hash", tx.TxHash).
 			Msg("reconcile: corrected DB state pendingΓåÆconfirmed")
 		s.dispatchWebhook(ctx, domain.EventTransferSettled, tx)
@@ -370,10 +392,69 @@ func (s *Service) checkPendingTransaction(ctx context.Context, tx *domain.Transa
 		}
 		return true, false, fmt.Errorf("update tx %s to failed: %w", tx.ID, updateErr)
 	}
+	s.rollbackVelocity(ctx, tx)
 	log.Info().Str("tx_id", tx.ID).Str("tx_hash", tx.TxHash).
 		Str("result_xdr", horizonTx.ResultXdr).Msg("reconcile: corrected DB state pendingΓåÆfailed")
 	s.dispatchWebhook(ctx, domain.EventTransferFailed, tx)
 	return true, true, nil
+}
+
+func (s *Service) finalizeVelocity(ctx context.Context, tx *domain.Transaction) {
+	if s.velocity == nil || tx == nil || tx.TenantID == nil {
+		return
+	}
+	if err := s.velocity.Finalize(ctx, *tx.TenantID, tx.Asset, tx.ID); err != nil {
+		log.Error().Err(err).Str("tx_id", tx.ID).Msg("reconcile: failed to finalize velocity reservation")
+	}
+}
+
+func (s *Service) rollbackVelocity(ctx context.Context, tx *domain.Transaction) {
+	if s.velocity == nil || tx == nil || tx.TenantID == nil {
+		return
+	}
+	if err := s.velocity.Rollback(ctx, *tx.TenantID, tx.Asset, tx.ID); err != nil {
+		log.Error().Err(err).Str("tx_id", tx.ID).Msg("reconcile: failed to roll back velocity reservation")
+	}
+}
+
+func (s *Service) reserveVelocityRetry(ctx context.Context, transferID string) error {
+	if s.velocity == nil {
+		return nil
+	}
+	txRepo, ok := s.repo.(interface {
+		GetByID(context.Context, string) (*domain.Transaction, error)
+	})
+	if !ok {
+		return errors.New("velocity-limited retry requires transaction lookup")
+	}
+	tx, err := txRepo.GetByID(ctx, transferID)
+	if err != nil {
+		return fmt.Errorf("load transfer for velocity-limited retry: %w", err)
+	}
+	if tx.TenantID == nil {
+		return nil
+	}
+	if s.tenantLookup == nil {
+		return errors.New("velocity-limited retry requires tenant lookup")
+	}
+	t, err := s.tenantLookup.GetByID(ctx, *tx.TenantID)
+	if err != nil {
+		return fmt.Errorf("load tenant for velocity-limited retry: %w", err)
+	}
+	if t == nil {
+		return errors.New("load tenant for velocity-limited retry: tenant not found")
+	}
+	if err := s.velocity.Reserve(ctx, domain.ScreeningRequest{
+		OrgID:        *tx.TenantID,
+		TransferID:   tx.ID,
+		AccountType:  t.AccountType,
+		RiskCategory: t.RiskCategory,
+		Asset:        tx.Asset,
+		Amount:       tx.Amount,
+	}); err != nil {
+		return fmt.Errorf("reserve velocity for transfer retry: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) dispatchWebhook(ctx context.Context, event domain.EventType, tx *domain.Transaction) {
@@ -396,6 +477,9 @@ func (s *Service) dispatchWebhook(ctx context.Context, event domain.EventType, t
 // called by the admin force-settle endpoint; the worker-side ForceSettle does
 // the actual re-submission so the HTTP request never blocks on settlement.
 func (s *Service) EnqueueForceSettle(ctx context.Context, transferID, actor string) error {
+	if err := s.reserveVelocityRetry(ctx, transferID); err != nil {
+		return err
+	}
 	if err := s.repo.RetryFailedTransaction(ctx, transferID); err != nil {
 		return fmt.Errorf("retry failed transfer %s: %w", transferID, err)
 	}
@@ -409,6 +493,9 @@ func (s *Service) EnqueueForceSettle(ctx context.Context, transferID, actor stri
 // ForceSettle is the worker-side force-settle action: it re-submits the
 // transfer to the settlement worker, bypassing the stuck-pending heuristics.
 func (s *Service) ForceSettle(ctx context.Context, transferID, actor string) error {
+	if err := s.reserveVelocityRetry(ctx, transferID); err != nil {
+		return err
+	}
 	if err := s.repo.RetryFailedTransaction(ctx, transferID); err != nil {
 		return fmt.Errorf("retry failed transfer %s: %w", transferID, err)
 	}
@@ -477,40 +564,66 @@ func (s *Service) checkTransaction(ctx context.Context, tx *domain.Transaction) 
 	horizonTx, err := stellar.TransactionDetailWithContext(ctx, s.stellar, hash)
 	if err != nil {
 		if stellar.IsNotFound(err) {
-			log.Error().Str("tx_id", tx.ID).Str("tx_hash", hash).Msg("reconcile: confirmed tx not found on horizon")
-			if repoErr := s.repo.UpdateReconciliationStatus(ctx, tx.ID, domain.StatusReconciliationFailed); repoErr != nil {
-				return fmt.Errorf("update status to reconciliation_failed: %w", repoErr)
+			// A confirmed transaction Horizon has not ingested yet may just be
+			// Horizon lagging the database by a ledger or two. Let the
+			// auto-remediator watch it for a few ledger closes before paging
+			// anyone; it escalates through flagMissingOnChain if it persists.
+			if s.deferTransientMissing(ctx, tx) {
+				return nil
 			}
-
-			s.writeAudit(ctx, tx, "HTTP 404", false, false, false, domain.AuditNotFound, "transaction not found on Horizon")
-			s.alerting.Critical(ctx, "Reconciliation Failed: Missing Transaction",
-				fmt.Sprintf("Transaction %s (hash: %s) is marked confirmed in DB but returned 404 on Horizon. Possible ledger loss or fork.", tx.ID, hash))
-			return nil
+			return s.flagMissingOnChain(ctx, tx)
 		}
 		return fmt.Errorf("fetch transaction detail: %w", err)
 	}
 
+	_, err = s.verifyHorizonTransaction(ctx, tx, horizonTx)
+	return err
+}
+
+// flagMissingOnChain marks a confirmed transaction Horizon does not know about
+// as reconciliation_failed, writes the not_found audit entry, and pages an
+// operator.
+func (s *Service) flagMissingOnChain(ctx context.Context, tx *domain.Transaction) error {
+	hash := tx.TxHash
+	log.Error().Str("tx_id", tx.ID).Str("tx_hash", hash).Msg("reconcile: confirmed tx not found on horizon")
+	if repoErr := s.repo.UpdateReconciliationStatus(ctx, tx.ID, domain.StatusReconciliationFailed); repoErr != nil {
+		return fmt.Errorf("update status to reconciliation_failed: %w", repoErr)
+	}
+
+	s.writeAudit(ctx, tx, "HTTP 404", false, false, false, domain.AuditNotFound, "transaction not found on Horizon")
+	s.alerting.Critical(ctx, "Reconciliation Failed: Missing Transaction",
+		fmt.Sprintf("Transaction %s (hash: %s) is marked confirmed in DB but returned 404 on Horizon. Possible ledger loss or fork.", tx.ID, hash))
+	return nil
+}
+
+// verifyHorizonTransaction checks a confirmed transaction against the Horizon
+// record for its hash. It reports verified=true only when every check passed
+// and the transaction was marked reconciled; any failure is flagged as
+// reconciliation_failed, audited, and alerted before returning false.
+func (s *Service) verifyHorizonTransaction(ctx context.Context, tx *domain.Transaction, horizonTx horizon.Transaction) (bool, error) {
+	hash := tx.TxHash
+
 	if !horizonTx.Successful {
 		log.Error().Str("tx_id", tx.ID).Str("tx_hash", hash).Msg("reconcile: confirmed tx marked as failed on horizon")
 		if repoErr := s.repo.UpdateReconciliationStatus(ctx, tx.ID, domain.StatusReconciliationFailed); repoErr != nil {
-			return fmt.Errorf("update status to reconciliation_failed: %w", repoErr)
+			return false, fmt.Errorf("update status to reconciliation_failed: %w", repoErr)
 		}
 
 		s.writeAudit(ctx, tx, "unsuccessful", false, false, false, domain.AuditNotFound,
 			fmt.Sprintf("transaction successful=false on Horizon (result: %s)", horizonTx.ResultXdr))
 		s.alerting.Critical(ctx, "Reconciliation Failed: Unsuccessful Transaction",
 			fmt.Sprintf("Transaction %s (hash: %s) is marked confirmed in DB but Horizon reports it as unsuccessful.", tx.ID, hash))
-		return nil
+		return false, nil
 	}
 
 	ops, err := stellar.OperationsForTransactionWithContext(ctx, s.stellar, hash)
 	if err != nil {
-		return fmt.Errorf("fetch operations for transaction: %w", err)
+		return false, fmt.Errorf("fetch operations for transaction: %w", err)
 	}
 
 	expected, err := s.buildExpectedPayment(ctx, tx)
 	if err != nil {
-		return fmt.Errorf("resolve expected payment for tx %s: %w", tx.ID, err)
+		return false, fmt.Errorf("resolve expected payment for tx %s: %w", tx.ID, err)
 	}
 
 	amountVerified, assetVerified, feeVerified, details := verifyOps(ops, expected)
@@ -521,13 +634,13 @@ func (s *Service) checkTransaction(ctx context.Context, tx *domain.Transaction) 
 			Bool("fee_verified", feeVerified).
 			Msg("reconcile: payment mismatch")
 		if repoErr := s.repo.UpdateReconciliationStatus(ctx, tx.ID, domain.StatusReconciliationFailed); repoErr != nil {
-			return fmt.Errorf("update status to reconciliation_failed: %w", repoErr)
+			return false, fmt.Errorf("update status to reconciliation_failed: %w", repoErr)
 		}
 
 		s.writeAudit(ctx, tx, horizonStatus(&horizonTx), amountVerified, assetVerified, feeVerified, domain.AuditMismatch, details)
 		s.alerting.Critical(ctx, "Reconciliation Failed: Payment Mismatch",
 			fmt.Sprintf("Transaction %s (hash: %s): %s", tx.ID, hash, details))
-		return nil
+		return false, nil
 	}
 
 	s.writeAudit(ctx, tx, horizonStatus(&horizonTx), true, true, true, domain.AuditOK, "all checks passed")
@@ -536,7 +649,7 @@ func (s *Service) checkTransaction(ctx context.Context, tx *domain.Transaction) 
 	}
 
 	log.Debug().Str("tx_id", tx.ID).Str("tx_hash", hash).Msg("reconcile: verified ok")
-	return nil
+	return true, nil
 }
 
 // expectedPayment describes exactly what the platform expects a reconciled
@@ -757,6 +870,26 @@ func (s *Service) RecoverPending(ctx context.Context) error {
 				continue
 			}
 
+			// A hash means the settlement worker persisted an envelope before
+			// broadcasting it. Horizon returning 404 is not proof that the
+			// network never accepted it, so never create a new transfer from
+			// this recovery path. Hash-bearing transactions are reconciled by
+			// RunPendingReconciliation instead.
+			if tx.TxHash != "" {
+				log.Warn().Str("tx_id", tx.ID).Str("tx_hash", tx.TxHash).
+					Msg("reconcile: refusing to requeue transaction with a recorded Stellar hash")
+				continue
+			}
+
+			// Rows submitted by versions predating broadcast tracking may have
+			// reached Horizon even though no hash was stored. Keep them for
+			// operator review rather than risking a second transfer.
+			if tx.BroadcastOutcomeUnknown {
+				log.Warn().Str("tx_id", tx.ID).
+					Msg("reconcile: refusing to requeue transaction with an uncertain broadcast outcome")
+				continue
+			}
+
 			if tx.Status == domain.StatusSubmitted {
 				// This row was claimed by a worker that crashed before it could
 				// record a tx_hash — nothing may have reached the network. Reset
@@ -783,6 +916,8 @@ func (s *Service) RecoverPending(ctx context.Context) error {
 				log.Warn().Str("tx_id", tx.ID).Int("requeue_count", newCount).Msg("reconcile: max requeues reached, marking failed")
 				if repoErr := s.repo.UpdateReconciliationStatus(ctx, tx.ID, domain.StatusFailed); repoErr != nil {
 					log.Error().Err(repoErr).Str("tx_id", tx.ID).Msg("reconcile: mark as failed")
+				} else {
+					s.rollbackVelocity(ctx, tx)
 				}
 				s.alerting.Critical(ctx, "Transaction Failed: Max Requeues",
 					fmt.Sprintf("Transaction %s has been re-enqueued %d times without success. Marked as failed.", tx.ID, newCount))
@@ -932,6 +1067,30 @@ func (s *Service) checkWalletBalance(ctx context.Context, w *domain.Wallet) erro
 				WalletID:        w.ID,
 				DetectedAt:      now.Format(time.RFC3339),
 			})
+		}
+		if s.fraudDetector != nil {
+			findings, fraudErr := s.fraudDetector.Observe(ctx, FraudObservation{
+				TenantID:       tenantID,
+				AccountID:      w.ID,
+				WalletID:       w.ID,
+				RouteID:        w.ID,
+				Asset:          asset,
+				TransferAmount: expected,
+				Discrepancy:    drift,
+				ObservedAt:     now,
+			})
+			if fraudErr != nil {
+				logger.Error().Err(fraudErr).Str("wallet_id", w.ID).
+					Msg("reconcile: fraud containment or alerting failed")
+			}
+			for _, finding := range findings {
+				logger.Warn().
+					Str("kind", string(finding.Kind)).
+					Str("tenant_id", finding.TenantID).
+					Str("account_id", finding.AccountID).
+					Float64("score", finding.Score).
+					Msg("reconcile: fraud pattern detected and contained")
+			}
 		}
 		// Also surface the drift as a webhook event so tenants subscribed to
 		// reconciliation.drift are notified, not just platform operators.

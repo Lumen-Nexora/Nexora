@@ -5,41 +5,26 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Lumen-Nexora/Nexora/internal/dbtx"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type txKey struct{}
+// DB is the subset of pgxpool.Pool used by repositories. The interface now
+// lives in the leaf package internal/dbtx so worker and adaptor packages can
+// share the same tx helpers without importing every repository here.
+type DB = dbtx.DB
 
-func WithTx(ctx context.Context, tx pgx.Tx) context.Context {
-	return context.WithValue(ctx, txKey{}, tx)
-}
+// The tx helpers keep their historical postgres.* names via forwarding:
+// WithTx, TxFromContext, RunInTx, and HasTx simply delegate to dbtx.
+var WithTx = dbtx.WithTx
+var TxFromContext = dbtx.TxFromContext
+var RunInTx = dbtx.RunInTx
 
-func TxFromContext(ctx context.Context, defaultDB DB) DB {
-	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok {
-		return tx
-	}
-	return defaultDB
-}
-
-func RunInTx(ctx context.Context, db DB, fn func(context.Context) error) error {
-	tx, err := db.Begin(ctx)
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		_ = tx.Rollback(ctx)
-	}()
-
-	if err := fn(WithTx(ctx, tx)); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
-}
+// HasTx reports whether ctx already carries an ambient transaction.
+func HasTx(ctx context.Context) bool { return dbtx.HasTx(ctx) }
 
 func New(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(databaseURL)

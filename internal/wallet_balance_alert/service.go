@@ -10,6 +10,7 @@ import (
 	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 	"github.com/shopspring/decimal"
 )
 
@@ -22,6 +23,10 @@ type AuditLogger interface {
 	Record(ctx context.Context, event *domain.AuditEvent) error
 }
 
+type WebhookDispatcher interface {
+	Dispatch(ctx context.Context, eventType string, payload interface{}) error
+}
+
 type Repository interface {
 	Create(ctx context.Context, alert *domain.WalletBalanceAlert) error
 	Get(ctx context.Context, id string) (*domain.WalletBalanceAlert, error)
@@ -31,6 +36,8 @@ type Repository interface {
 	CreateEvent(ctx context.Context, event *domain.WalletBalanceAlertEvent) error
 	ListEvents(ctx context.Context, alertID string, limit int) ([]*domain.WalletBalanceAlertEvent, error)
 	GetActiveAlertsForWallet(ctx context.Context, walletID string) ([]*domain.WalletBalanceAlert, error)
+	GetCooldown(ctx context.Context, alertID, walletID, assetCode, assetIssuer string) (lastTriggeredAt time.Time, cooldownWindow int, exists bool, err error)
+	UpsertCooldown(ctx context.Context, alertID, walletID, assetCode, assetIssuer string, lastTriggeredAt time.Time, cooldownWindow int) error
 }
 
 type Service interface {
@@ -40,16 +47,26 @@ type Service interface {
 	Update(ctx context.Context, id, threshold string, status domain.WalletBalanceAlertStatus) (*domain.WalletBalanceAlert, error)
 	Delete(ctx context.Context, id string) error
 	ListEvents(ctx context.Context, alertID string, limit int) ([]*domain.WalletBalanceAlertEvent, error)
+	EvaluateWalletBalances(ctx context.Context, walletID string, balances map[string]decimal.Decimal) error
 }
 
 type service struct {
-	repo  Repository
-	audit AuditLogger
-	now   func() time.Time
+	repo       Repository
+	audit      AuditLogger
+	webhook    WebhookDispatcher
+	now        func() time.Time
+	cooldownSec int
 }
 
 func NewService(repo Repository, audit AuditLogger) Service {
-	return &service{repo: repo, audit: audit, now: func() time.Time { return time.Now().UTC() }}
+	return &service{repo: repo, audit: audit, webhook: nil, now: func() time.Time { return time.Now().UTC() }, cooldownSec: 3600}
+}
+
+func NewServiceWithWebhook(repo Repository, audit AuditLogger, webhook WebhookDispatcher, cooldownSec int) Service {
+	if cooldownSec <= 0 {
+		cooldownSec = 3600
+	}
+	return &service{repo: repo, audit: audit, webhook: webhook, now: func() time.Time { return time.Now().UTC() }, cooldownSec: cooldownSec}
 }
 
 func (s *service) Create(ctx context.Context, walletID, assetCode, assetIssuer, threshold string) (*domain.WalletBalanceAlert, error) {
@@ -154,6 +171,87 @@ func (s *service) Delete(ctx context.Context, id string) error {
 
 func (s *service) ListEvents(ctx context.Context, alertID string, limit int) ([]*domain.WalletBalanceAlertEvent, error) {
 	return s.repo.ListEvents(ctx, alertID, limit)
+}
+
+func (s *service) EvaluateWalletBalances(ctx context.Context, walletID string, balances map[string]decimal.Decimal) error {
+	alerts, err := s.repo.GetActiveAlertsForWallet(ctx, walletID)
+	if err != nil {
+		return fmt.Errorf("get active alerts for wallet: %w", err)
+	}
+
+	now := s.now()
+	for _, alert := range alerts {
+		balance, exists := balances[alert.AssetCode]
+		if !exists {
+			continue
+		}
+
+		threshold, err := decimal.NewFromString(alert.Threshold)
+		if err != nil {
+			continue
+		}
+
+		if balance.GreaterThanOrEqual(threshold) {
+			continue
+		}
+
+		lastTriggered, cooldownWindow, cooldownExists, err := s.repo.GetCooldown(ctx, alert.ID, walletID, alert.AssetCode, alert.AssetIssuer)
+		if err != nil {
+			log.Warn().Err(err).Str("alert_id", alert.ID).Msg("failed to get cooldown, skipping alert")
+			continue
+		}
+
+		if cooldownExists {
+			timeSinceLastTrigger := now.Sub(lastTriggered)
+			if timeSinceLastTrigger < time.Duration(cooldownWindow)*time.Second {
+				continue
+			}
+		}
+
+		event := &domain.WalletBalanceAlertEvent{
+			ID:          uuid.NewString(),
+			AlertID:     alert.ID,
+			WalletID:    walletID,
+			AssetCode:   alert.AssetCode,
+			AssetIssuer: alert.AssetIssuer,
+			Balance:     balance.StringFixed(7),
+			Threshold:   alert.Threshold,
+			TriggeredAt: now,
+		}
+
+		if err := s.repo.CreateEvent(ctx, event); err != nil {
+			log.Error().Err(err).Str("alert_id", alert.ID).Msg("failed to create alert event")
+			continue
+		}
+
+		if err := s.repo.UpsertCooldown(ctx, alert.ID, walletID, alert.AssetCode, alert.AssetIssuer, now, s.cooldownSec); err != nil {
+			log.Error().Err(err).Str("alert_id", alert.ID).Msg("failed to upsert cooldown")
+		}
+
+		if s.webhook != nil {
+			payload := map[string]interface{}{
+				"alert_id":      alert.ID,
+				"wallet_id":     walletID,
+				"asset_code":    alert.AssetCode,
+				"asset_issuer":  alert.AssetIssuer,
+				"balance":       balance.StringFixed(7),
+				"threshold":     alert.Threshold,
+				"triggered_at":  now.Format(time.RFC3339),
+			}
+			if err := s.webhook.Dispatch(ctx, domain.EventWalletBalanceLow, payload); err != nil {
+				log.Error().Err(err).Str("alert_id", alert.ID).Msg("failed to dispatch webhook")
+			}
+		}
+
+		s.log(ctx, "wallet_balance_alert.triggered", alert.ID, map[string]interface{}{
+			"wallet_id":    walletID,
+			"asset_code":   alert.AssetCode,
+			"balance":      balance.StringFixed(7),
+			"threshold":    alert.Threshold,
+		})
+	}
+
+	return nil
 }
 
 func (s *service) log(ctx context.Context, action, id string, metadata map[string]interface{}) {

@@ -83,6 +83,31 @@ var (
 	ErrUnmappedDepositNotFound    = errors.New("unmapped deposit not found")
 	ErrCorridorConflict           = errors.New("corridor from_asset and to_asset cannot be identical")
 	ErrDuplicateMarginTier        = errors.New("margin configuration already exists for this tenant, corridor, and tier")
+	ErrNetworkFeeNotFound         = errors.New("network fee charge not found")
+
+	// Account closure protocol (#96). Each refusal is distinct so an operator
+	// can tell what has to be resolved before the closure can be retried.
+	ErrAccountClosureNotFound        = errors.New("account closure not found")
+	ErrCustodySettingsNotFound       = errors.New("tenant custody settings are not configured")
+	ErrClosureJustificationRequired  = errors.New("a closure justification is required")
+	ErrClosureConfirmationMismatch   = errors.New("confirmation does not match the wallet public key")
+	ErrClosureOperatorRequired       = errors.New("account closure requires an authenticated operator")
+	ErrClosureNotCustodial           = errors.New("only custodial wallets can be closed")
+	ErrClosurePrimarySettlement      = errors.New("wallet is the tenant's primary settlement account")
+	ErrClosureMasterAccount          = errors.New("wallet is the tenant's master address")
+	ErrClosurePendingTransfers       = errors.New("wallet has pending transfers")
+	ErrClosureOutstandingBalance     = errors.New("wallet holds a non-zero balance or open liabilities on a non-native asset")
+	ErrClosureUnsupportedAccount     = errors.New("account state prevents an automated AccountMerge")
+	ErrClosureAlreadyExists          = errors.New("wallet already has a pending or completed closure")
+	ErrClosureMasterAddressNotFunded = errors.New("tenant master address does not exist on the ledger")
+	ErrInvalidMasterAddress          = errors.New("master address must be a valid Stellar account ID")
+
+	// Wallet consolidation (#95).
+	ErrConsolidationNotFound            = errors.New("consolidation not found")
+	ErrConsolidationInvalid             = errors.New("invalid consolidation request")
+	ErrConsolidationKeyConflict         = errors.New("idempotency key was already used for a different consolidation")
+	ErrConsolidationNothingToMove       = errors.New("no source wallet has a balance that can be consolidated")
+	ErrConsolidationDestinationUnfunded = errors.New("destination wallet does not exist on the ledger")
 )
 
 // FX quote sanity-check errors (issue #82). A quote that trips any of these is

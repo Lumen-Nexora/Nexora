@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -88,16 +89,37 @@ type TenantFXMargin struct {
 	UpdatedAt     time.Time        `json:"updated_at"`
 }
 
-// TenantFXMarginAudit records historical modifications to tenant FX margin configs.
-type TenantFXMarginAudit struct {
-	ID              string                 `json:"id"`
-	MarginID        string                 `json:"margin_id"`
-	TenantID        string                 `json:"tenant_id"`
-	Action          string                 `json:"action"` // "create", "update", "delete"
-	OldValues       map[string]interface{} `json:"old_values,omitempty"`
-	NewValues       map[string]interface{} `json:"new_values,omitempty"`
-	ActorPrincipal  string                 `json:"actor_principal"`
-	ActorIP         string                 `json:"actor_ip,omitempty"`
-	CreatedAt       time.Time              `json:"created_at"`
+// Platform-allowable tenant FX margin ceilings (basis points)
+// -500 bps = -5.00% max allowable discount, 5000 bps = +50.00% max allowable
+// markup.
+const (
+	MinAllowableMarginBps = -500
+	MaxAllowableMarginBps = 5000
+)
+
+// TenantFXRepo handles persistence, retrieval, tier resolution, and audit
+// tracking for multi-tenant custom FX markups. It is declared here — next to
+// the aggregates it manages — so postgres storage and the fx service can both
+// depend on it without importing each other.
+type TenantFXRepo interface {
+	CreateMargin(ctx context.Context, m *TenantFXMargin, actorPrincipal, actorIP string) error
+	GetMargin(ctx context.Context, id, tenantID string) (*TenantFXMargin, error)
+	FindMargin(ctx context.Context, tenantID, fromAsset, toAsset string, amount decimal.Decimal) (*TenantFXMargin, error)
+	ListMargins(ctx context.Context, tenantID, fromAsset, toAsset string, limit, offset int) ([]*TenantFXMargin, int, error)
+	UpdateMargin(ctx context.Context, m *TenantFXMargin, actorPrincipal, actorIP string) error
+	DeleteMargin(ctx context.Context, id, tenantID, actorPrincipal, actorIP string) error
+	ListMarginAudits(ctx context.Context, tenantID, marginID string, limit, offset int) ([]*TenantFXMarginAudit, error)
 }
 
+// TenantFXMarginAudit records historical modifications to tenant FX margin configs.
+type TenantFXMarginAudit struct {
+	ID             string                 `json:"id"`
+	MarginID       string                 `json:"margin_id"`
+	TenantID       string                 `json:"tenant_id"`
+	Action         string                 `json:"action"` // "create", "update", "delete"
+	OldValues      map[string]interface{} `json:"old_values,omitempty"`
+	NewValues      map[string]interface{} `json:"new_values,omitempty"`
+	ActorPrincipal string                 `json:"actor_principal"`
+	ActorIP        string                 `json:"actor_ip,omitempty"`
+	CreatedAt      time.Time              `json:"created_at"`
+}

@@ -92,7 +92,17 @@ func (m *complianceMockRepo) CreateBlock(_ context.Context, b *domain.Compliance
 
 func (m *complianceMockRepo) ReplaceSanctionsEntities(_ context.Context, entities []*domain.SanctionsEntity, _ time.Time) (int, error) {
 	m.replaceCalls++
-	m.entities = entities
+	if len(entities) == 0 {
+		return 0, nil
+	}
+	source := entities[0].Source
+	var kept []*domain.SanctionsEntity
+	for _, e := range m.entities {
+		if e.Source != source {
+			kept = append(kept, e)
+		}
+	}
+	m.entities = append(kept, entities...)
 	return len(entities), nil
 }
 

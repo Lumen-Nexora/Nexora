@@ -2,10 +2,15 @@ package fx
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 	horizonclient "github.com/stellar/go/clients/horizonclient"
+	"github.com/stellar/go/protocols/horizon"
 )
 
 // Provider fetches mid-market FX rates for a set of currency pairs.
@@ -77,4 +82,51 @@ func horizonAssetType(code string) horizonclient.AssetType {
 		return horizonclient.AssetType4
 	}
 	return horizonclient.AssetType12
+}
+
+// GetDepth reads bids for selling from into to. Horizon expresses bid amounts
+// in the counter (destination) asset, so divide by price for source capacity.
+func (p *HorizonProvider) GetDepth(ctx context.Context, from, to string) ([]OrderbookLevel, error) {
+	req := horizonclient.OrderBookRequest{SellingAssetType: horizonAssetType(from), BuyingAssetType: horizonAssetType(to), Limit: 200}
+	if from != "XLM" {
+		req.SellingAssetCode = from
+		req.SellingAssetIssuer = p.issuers[from]
+	}
+	if to != "XLM" {
+		req.BuyingAssetCode = to
+		req.BuyingAssetIssuer = p.issuers[to]
+	}
+	request, err := req.HTTPRequest(strings.TrimRight(p.client.HorizonURL, "/") + "/")
+	if err != nil {
+		return nil, fmt.Errorf("build depth request: %w", err)
+	}
+	client := p.client.HTTP
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	resp, err := client.Do(request.WithContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("request depth: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("depth request status: %d", resp.StatusCode)
+	}
+	var book horizon.OrderBookSummary
+	if err := json.NewDecoder(resp.Body).Decode(&book); err != nil {
+		return nil, fmt.Errorf("decode depth: %w", err)
+	}
+	levels := make([]OrderbookLevel, 0, len(book.Bids))
+	for _, bid := range book.Bids {
+		price, err := decimal.NewFromString(bid.Price)
+		if err != nil || price.Sign() <= 0 {
+			return nil, fmt.Errorf("invalid depth price %q", bid.Price)
+		}
+		amount, err := decimal.NewFromString(bid.Amount)
+		if err != nil || amount.Sign() <= 0 {
+			return nil, fmt.Errorf("invalid depth amount %q", bid.Amount)
+		}
+		levels = append(levels, OrderbookLevel{Price: price, Amount: amount.Div(price)})
+	}
+	return levels, nil
 }

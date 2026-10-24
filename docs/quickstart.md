@@ -479,6 +479,7 @@ curl -H "Authorization: Bearer sk_test_..." \
 | `transfer.settled` | Transfer confirmed on Stellar |
 | `transfer.failed` | Transfer failed |
 | `wallet.funded` | Wallet received funds |
+| `wallet.swept` | Deposits were swept from a custodial wallet to the tenant master address ([details](custodial-sweep.md)) |
 | `conversion.completed` | FX conversion executed |
 
 ---

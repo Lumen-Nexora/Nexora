@@ -78,7 +78,7 @@ type testDetailsRecorder struct {
 	recorded       bool
 }
 
-func (r *testDetailsRecorder) RecordSettlementDetails(_ context.Context, txID, txHash string, ledgerSequence int32, feeCharged int64) error {
+func (r *testDetailsRecorder) RecordSettlementDetails(_ context.Context, txID, txHash string, _ *string, ledgerSequence int32, feeCharged int64, _ time.Time) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.txID = txID

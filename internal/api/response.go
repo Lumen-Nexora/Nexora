@@ -16,10 +16,11 @@ type errorResponse struct {
 }
 
 type errorDetail struct {
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	Status    int    `json:"status"`
-	RequestID string `json:"request_id"`
+	Code      string      `json:"code"`
+	Message   string      `json:"message"`
+	Status    int         `json:"status"`
+	RequestID string      `json:"request_id"`
+	Details   interface{} `json:"details,omitempty"`
 }
 
 // ValidationErrorDetail describes a single invalid field in a request.
@@ -60,6 +61,11 @@ func Error(w http.ResponseWriter, status int, code, message string) {
 	JSON(w, status, errorResponse{
 		Error: errorDetail{Code: code, Message: message, Status: status, RequestID: effectiveRequestID(w)},
 	})
+}
+
+// ErrorWithDetails preserves the standard error envelope and attaches calculation data.
+func ErrorWithDetails(w http.ResponseWriter, status int, code, message string, details interface{}) {
+	JSON(w, status, errorResponse{Error: errorDetail{Code: code, Message: message, Status: status, RequestID: effectiveRequestID(w), Details: details}})
 }
 
 // WriteError writes an error response using HandleDomainError for domain errors
@@ -118,7 +124,9 @@ func HandleDomainError(w http.ResponseWriter, err error) {
 		errors.Is(err, domain.ErrUserNotFound), errors.Is(err, domain.ErrOrgNotFound), errors.Is(err, domain.ErrOrgMemberNotFound),
 		errors.Is(err, domain.ErrInviteNotFound), errors.Is(err, domain.ErrClaimableBalanceNotFound),
 		errors.Is(err, domain.ErrMarginNotFound),
-		errors.Is(err, domain.ErrMemoPolicyNotFound), errors.Is(err, domain.ErrUnmappedDepositNotFound):
+		errors.Is(err, domain.ErrMemoPolicyNotFound), errors.Is(err, domain.ErrUnmappedDepositNotFound),
+		errors.Is(err, domain.ErrAccountClosureNotFound), errors.Is(err, domain.ErrCustodySettingsNotFound),
+		errors.Is(err, domain.ErrConsolidationNotFound):
 		NotFound(w, err.Error())
 	case errors.Is(err, domain.ErrSelfTransfer), errors.Is(err, domain.ErrInvalidAsset),
 		errors.Is(err, domain.ErrBeneficiaryNotAllowed),
@@ -149,6 +157,34 @@ func HandleDomainError(w http.ResponseWriter, err error) {
 		Error(w, http.StatusConflict, "CLAIMABLE_BALANCE_NOT_PENDING", err.Error())
 	case errors.Is(err, domain.ErrUserAlreadyExists), errors.Is(err, domain.ErrDuplicateMarginTier):
 		Error(w, http.StatusConflict, "CONFLICT", err.Error())
+	// Closure input errors are malformed requests; closure refusals are a 409
+	// with a code per reason, because the request was well formed but the
+	// account is not in a state that can be destroyed safely.
+	case errors.Is(err, domain.ErrClosureJustificationRequired),
+		errors.Is(err, domain.ErrClosureConfirmationMismatch),
+		errors.Is(err, domain.ErrInvalidMasterAddress):
+		BadRequest(w, err.Error())
+	case errors.Is(err, domain.ErrClosureOperatorRequired):
+		Error(w, http.StatusForbidden, "FORBIDDEN", err.Error())
+	case errors.Is(err, domain.ErrClosurePendingTransfers):
+		Error(w, http.StatusConflict, "CLOSURE_PENDING_TRANSFERS", err.Error())
+	case errors.Is(err, domain.ErrClosureOutstandingBalance):
+		Error(w, http.StatusConflict, "CLOSURE_OUTSTANDING_BALANCE", err.Error())
+	case errors.Is(err, domain.ErrClosurePrimarySettlement), errors.Is(err, domain.ErrClosureMasterAccount):
+		Error(w, http.StatusConflict, "CLOSURE_PROTECTED_ACCOUNT", err.Error())
+	case errors.Is(err, domain.ErrClosureNotCustodial), errors.Is(err, domain.ErrClosureUnsupportedAccount),
+		errors.Is(err, domain.ErrClosureMasterAddressNotFunded):
+		Error(w, http.StatusConflict, "CLOSURE_UNSUPPORTED_ACCOUNT", err.Error())
+	case errors.Is(err, domain.ErrClosureAlreadyExists):
+		Error(w, http.StatusConflict, "CLOSURE_ALREADY_EXISTS", err.Error())
+	case errors.Is(err, domain.ErrConsolidationInvalid):
+		BadRequest(w, err.Error())
+	case errors.Is(err, domain.ErrConsolidationKeyConflict):
+		Error(w, http.StatusConflict, "CONFLICT", err.Error())
+	case errors.Is(err, domain.ErrConsolidationNothingToMove):
+		Error(w, http.StatusConflict, "CONSOLIDATION_NOTHING_TO_MOVE", err.Error())
+	case errors.Is(err, domain.ErrConsolidationDestinationUnfunded):
+		Error(w, http.StatusConflict, "CONSOLIDATION_DESTINATION_UNFUNDED", err.Error())
 	case errors.Is(err, domain.ErrLastOrgOwner):
 		Error(w, http.StatusConflict, "LAST_ORG_OWNER", err.Error())
 	case errors.Is(err, domain.ErrInvalidCredentials):

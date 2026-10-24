@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -395,4 +396,111 @@ func streamErr(ctx context.Context, idled *atomic.Bool, err error) error {
 		return ctx.Err()
 	}
 	return err
+}
+
+// PreflightAccount is the read-only state needed to predict a classic payment.
+type PreflightAccount struct {
+	AccountID     string             `json:"account_id"`
+	Sequence      string             `json:"sequence"`
+	SubentryCount int64              `json:"subentry_count"`
+	NumSponsoring int64              `json:"num_sponsoring"`
+	NumSponsored  int64              `json:"num_sponsored"`
+	Balances      []PreflightBalance `json:"balances"`
+}
+
+type PreflightBalance struct {
+	Type       string `json:"asset_type"`
+	Code       string `json:"asset_code"`
+	Issuer     string `json:"asset_issuer"`
+	Balance    string `json:"balance"`
+	Limit      string `json:"limit"`
+	Buying     string `json:"buying_liabilities"`
+	Selling    string `json:"selling_liabilities"`
+	Authorized bool   `json:"is_authorized"`
+}
+
+type PreflightNetwork struct {
+	Ledger      uint32 `json:"ledger"`
+	BaseReserve int64  `json:"base_reserve_stroops"`
+	Fee         int64  `json:"fee_stroops"`
+}
+
+// PreflightClient deliberately exposes no signing or submission operation.
+// Horizon has no dry-run endpoint for classic payments; these reads support
+// local validation only, not a guarantee of eventual execution.
+type PreflightClient struct {
+	URL  string
+	HTTP *http.Client
+}
+
+func NewPreflightClient(horizonURL string, timeout time.Duration) *PreflightClient {
+	if timeout <= 0 {
+		timeout = defaultHorizonTimeout
+	}
+	return &PreflightClient{URL: strings.TrimRight(horizonURL, "/"), HTTP: &http.Client{Timeout: timeout}}
+}
+
+var ErrPreflightAccountMissing = errors.New("preflight account does not exist")
+
+func (c *PreflightClient) read(ctx context.Context, path string, result interface{}) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.URL+path, nil)
+	if err != nil {
+		return fmt.Errorf("preflight request: %w", err)
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("preflight read: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound && strings.HasPrefix(path, "/accounts/") {
+		return ErrPreflightAccountMissing
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("preflight horizon status %d", resp.StatusCode)
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(result); err != nil {
+		return fmt.Errorf("decode preflight state: %w", err)
+	}
+	return nil
+}
+
+func (c *PreflightClient) Account(ctx context.Context, address string) (PreflightAccount, error) {
+	var account PreflightAccount
+	err := c.read(ctx, "/accounts/"+url.PathEscape(address), &account)
+	return account, err
+}
+
+func (c *PreflightClient) Network(ctx context.Context) (PreflightNetwork, error) {
+	var page struct {
+		Embedded struct {
+			Records []struct {
+				Sequence uint32 `json:"sequence"`
+				Reserve  int64  `json:"base_reserve_in_stroops"`
+				Fee      int64  `json:"base_fee_in_stroops"`
+			} `json:"records"`
+		} `json:"_embedded"`
+	}
+	if err := c.read(ctx, "/ledgers?order=desc&limit=1", &page); err != nil {
+		return PreflightNetwork{}, err
+	}
+	if len(page.Embedded.Records) != 1 {
+		return PreflightNetwork{}, fmt.Errorf("preflight: latest ledger missing")
+	}
+	l := page.Embedded.Records[0]
+	var fees struct {
+		Charged struct {
+			P95 string `json:"p95"`
+		} `json:"fee_charged"`
+	}
+	if err := c.read(ctx, "/fee_stats", &fees); err != nil {
+		return PreflightNetwork{}, err
+	}
+	fee, err := strconv.ParseInt(fees.Charged.P95, 10, 64)
+	if err != nil || fee <= 0 || l.Fee <= 0 || l.Reserve <= 0 || l.Sequence == 0 {
+		return PreflightNetwork{}, fmt.Errorf("preflight: invalid network fee or reserve")
+	}
+	if fee < l.Fee {
+		fee = l.Fee
+	}
+	return PreflightNetwork{Ledger: l.Sequence, BaseReserve: l.Reserve, Fee: fee}, nil
 }

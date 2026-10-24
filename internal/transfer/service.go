@@ -31,6 +31,17 @@ type Screener interface {
 	RecordHold(ctx context.Context, tx *domain.Transaction, decision *domain.ScreeningDecision) error
 }
 
+type TravelRuleGate interface {
+	Requires(context.Context, string, decimal.Decimal, *domain.TravelRuleRequest) (bool, error)
+	Begin(context.Context, *domain.Transaction, *domain.TravelRuleRequest, domain.TransactionStatus) (domain.TravelRuleExchangeStatus, error)
+}
+
+type VelocityLimiter interface {
+	Reserve(context.Context, domain.ScreeningRequest) error
+	Finalize(context.Context, string, string, string) error
+	Rollback(context.Context, string, string, string) error
+}
+
 // BeneficiaryChecker is optional so existing tenants with no configured
 // allowlist retain their current transfer behaviour.
 type BeneficiaryChecker interface {
@@ -70,6 +81,7 @@ type TransferParams struct {
 	ExternalReference *string
 	Tags              []string
 	IdempotencyKey    string
+	TravelRule        *domain.TravelRuleRequest
 }
 
 type Service interface {
@@ -103,6 +115,20 @@ func ConfigureScreener(svc Service, screener Screener) Service {
 	return svc
 }
 
+func ConfigureTravelRuleGate(svc Service, gate TravelRuleGate) Service {
+	if configurable, ok := svc.(interface{ WithTravelRuleGate(TravelRuleGate) Service }); ok {
+		return configurable.WithTravelRuleGate(gate)
+	}
+	return svc
+}
+
+func ConfigureVelocityLimiter(svc Service, limiter VelocityLimiter) Service {
+	if configurable, ok := svc.(interface{ WithVelocityLimiter(VelocityLimiter) Service }); ok {
+		return configurable.WithVelocityLimiter(limiter)
+	}
+	return svc
+}
+
 // Queue is the subset of the asynq-backed queue client the transfer service
 // uses. Declaring it as an interface lets callers swap in a double and lets
 // ReconcileWallet feature-detect optional queue capabilities.
@@ -119,6 +145,8 @@ type service struct {
 	stellar        stellar.Client
 	clientResolver stellar.ClientResolver
 	screener       Screener
+	travelRule     TravelRuleGate
+	velocity       VelocityLimiter
 	audit          AuditLogger
 	beneficiaries  BeneficiaryChecker
 	approvals      ApprovalGate
@@ -190,6 +218,16 @@ func (s *service) WithBeneficiaryChecker(checker BeneficiaryChecker) Service {
 
 func (s *service) WithScreener(screener Screener) Service {
 	s.screener = screener
+	return s
+}
+
+func (s *service) WithTravelRuleGate(gate TravelRuleGate) Service {
+	s.travelRule = gate
+	return s
+}
+
+func (s *service) WithVelocityLimiter(limiter VelocityLimiter) Service {
+	s.velocity = limiter
 	return s
 }
 
@@ -265,12 +303,22 @@ func (s *service) initiate(ctx context.Context, params TransferParams) (*domain.
 	mode := tenant.ModeOrDefault(ctx, domain.ModeLive)
 	var monthlyLimit int
 	var dailyLimit int
+	var tenantRecord *domain.Tenant
 	if tenantID != "" && s.tenantRepo != nil {
 		t, err := s.tenantRepo.GetByID(ctx, tenantID)
 		if err == nil && t != nil {
+			tenantRecord = t
 			monthlyLimit = t.GetTransferLimit()
 			dailyLimit = t.GetDailyTransferLimit()
+		} else if s.velocity != nil {
+			if err == nil {
+				err = errors.New("tenant was not found")
+			}
+			return nil, fmt.Errorf("load tenant velocity profile: %w", err)
 		}
+	}
+	if s.velocity != nil && tenantID != "" && (s.tenantRepo == nil || tenantRecord == nil) {
+		return nil, errors.New("load tenant velocity profile: tenant repository is unavailable")
 	}
 
 	srcWallet, err := s.walletRepo.GetByID(ctx, fromID)
@@ -311,9 +359,13 @@ func (s *service) initiate(ctx context.Context, params TransferParams) (*domain.
 
 	status := domain.StatusPending
 	var decision *domain.ScreeningDecision
+	transferID := uuid.New().String()
 	if s.screener != nil {
 		decision, err = s.screener.ScreenTransfer(ctx, domain.ScreeningRequest{
 			OrgID:         tenantID,
+			TransferID:    transferID,
+			AccountType:   accountType(tenantRecord),
+			RiskCategory:  riskCategory(tenantRecord),
 			FromWalletID:  fromID,
 			ToWalletID:    toID,
 			FromPublicKey: srcWallet.PublicKey,
@@ -338,6 +390,15 @@ func (s *service) initiate(ctx context.Context, params TransferParams) (*domain.
 		}
 	}
 
+	screeningHold := status == domain.StatusComplianceHold
+	travelRuleRequired := false
+	if s.travelRule != nil {
+		travelRuleRequired, err = s.travelRule.Requires(ctx, asset, amount, params.TravelRule)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	var tenantPtr *string
 	if tenantID != "" {
 		tenantPtr = &tenantID
@@ -359,7 +420,7 @@ func (s *service) initiate(ctx context.Context, params TransferParams) (*domain.
 	}
 
 	tx := &domain.Transaction{
-		ID:                uuid.New().String(),
+		ID:                transferID,
 		Type:              domain.TypeTransfer,
 		Status:            status,
 		FromWallet:        fromID,
@@ -387,8 +448,33 @@ func (s *service) initiate(ctx context.Context, params TransferParams) (*domain.
 			tx.Status = domain.StatusApprovalPending
 		}
 	}
+	releaseStatus := tx.Status
+	if travelRuleRequired {
+		tx.Status = domain.StatusComplianceHold
+	}
 	if recordID := idempotency.RecordIDFromContext(ctx); recordID != "" && idempotencyKey != "" {
 		tx.IdempotencyRecordID = &recordID
+	}
+
+	velocityReserved := false
+	retainVelocityReservation := false
+	if s.velocity != nil && tenantID != "" && tx.Status == domain.StatusPending {
+		if err := s.velocity.Reserve(ctx, domain.ScreeningRequest{
+			OrgID:        tenantID,
+			TransferID:   tx.ID,
+			AccountType:  accountType(tenantRecord),
+			RiskCategory: riskCategory(tenantRecord),
+			Asset:        asset,
+			Amount:       amount,
+		}); err != nil {
+			return nil, fmt.Errorf("reserve transfer velocity: %w", err)
+		}
+		velocityReserved = true
+		defer func() {
+			if velocityReserved && !retainVelocityReservation {
+				s.rollbackVelocityReservation(ctx, tenantID, asset, tx.ID)
+			}
+		}()
 	}
 
 	var createErr error
@@ -414,7 +500,18 @@ func (s *service) initiate(ctx context.Context, params TransferParams) (*domain.
 				}
 			}
 		}
-		return nil, createErr
+		if persisted, lookupErr := s.repo.GetByID(ctx, tx.ID); lookupErr == nil {
+			tx = persisted
+			createErr = nil
+		} else if !errors.Is(lookupErr, domain.ErrTransactionNotFound) {
+			// The database outcome is ambiguous. Keep the reservation so an
+			// uncertain persisted transfer cannot bypass the admission limit.
+			retainVelocityReservation = velocityReserved
+			return nil, createErr
+		}
+		if createErr != nil {
+			return nil, createErr
+		}
 	}
 
 	actor := "system"
@@ -432,24 +529,84 @@ func (s *service) initiate(ctx context.Context, params TransferParams) (*domain.
 	}
 	s.recordAudit(ctx, actor, "transfer.created", tx.ID)
 
-	if tx.Status == domain.StatusComplianceHold {
+	if screeningHold && s.screener != nil {
 		if err := s.screener.RecordHold(ctx, tx, decision); err != nil {
 			return nil, fmt.Errorf("record compliance hold: %w", err)
 		}
+	}
+	if travelRuleRequired {
+		exchangeStatus, beginErr := s.travelRule.Begin(ctx, tx, params.TravelRule, releaseStatus)
+		if beginErr != nil {
+			zerolog.Ctx(ctx).Error().Err(beginErr).Str("transaction_id", tx.ID).
+				Msg("transfer: Travel Rule exchange failed; transfer remains held")
+			return tx, nil
+		}
+		switch exchangeStatus {
+		case domain.TravelRuleExchangePending:
+			return tx, nil
+		case domain.TravelRuleExchangeRejected:
+			if err := s.repo.UpdateStatus(ctx, tx.ID, domain.StatusFailed, ""); err != nil {
+				return nil, fmt.Errorf("fail Travel Rule-rejected transfer: %w", err)
+			}
+			tx.Status = domain.StatusFailed
+			return tx, nil
+		case domain.TravelRuleExchangeConfirmed:
+			if releaseStatus == domain.StatusComplianceHold {
+				return tx, nil
+			}
+			if err := s.repo.UpdateStatus(ctx, tx.ID, releaseStatus, ""); err != nil {
+				return nil, fmt.Errorf("release Travel Rule hold: %w", err)
+			}
+			tx.Status = releaseStatus
+		default:
+			// Unknown exchange state is not an approval.
+			return tx, nil
+		}
+	}
+	if tx.Status == domain.StatusComplianceHold {
 		return tx, nil
 	}
 	if tx.Status == domain.StatusApprovalPending {
+		retainVelocityReservation = velocityReserved
 		return tx, nil
 	}
 
 	if s.queue != nil {
 		if err := s.queue.EnqueueTransfer(ctx, tx.ID); err != nil {
 			zerolog.Ctx(ctx).Error().Err(err).Str("transaction_id", tx.ID).Msg("transfer: failed to enqueue settlement job")
+			// The durable row remains pending and may be picked up by a
+			// reconciler, so keep its reservation rather than admitting a
+			// duplicate while the enqueue outcome is repaired.
+			retainVelocityReservation = velocityReserved
 			return nil, fmt.Errorf("enqueue settlement: %w", err)
 		}
 	}
 
+	retainVelocityReservation = velocityReserved
 	return tx, nil
+}
+
+func accountType(t *domain.Tenant) domain.AccountType {
+	if t == nil {
+		return ""
+	}
+	return t.AccountType
+}
+
+func riskCategory(t *domain.Tenant) domain.RiskCategory {
+	if t == nil {
+		return ""
+	}
+	return t.RiskCategory
+}
+
+func (s *service) rollbackVelocityReservation(ctx context.Context, orgID, asset, transferID string) {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.velocity.Rollback(cleanupCtx, orgID, asset, transferID); err != nil {
+		zerolog.Ctx(ctx).Error().Err(err).Str("transfer_id", transferID).
+			Msg("transfer: failed to roll back velocity reservation")
+	}
 }
 
 func (s *service) validateTrustline(ctx context.Context, walletID, publicKey, asset string) error {
@@ -529,6 +686,9 @@ func (s *service) CancelTransfer(ctx context.Context, id, actor, idempotencyKey 
 
 	// If the status is now cancelled, the cancellation succeeded.
 	if tx.Status == domain.StatusCancelled {
+		if s.velocity != nil && tx.TenantID != nil {
+			s.rollbackVelocityReservation(ctx, *tx.TenantID, tx.Asset, tx.ID)
+		}
 		// Record audit log entry with the acting principal.
 		s.recordAudit(ctx, actor, "transfer.cancel", id)
 		// Dispatch webhook event for cancellation.

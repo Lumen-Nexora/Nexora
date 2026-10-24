@@ -18,6 +18,14 @@ type AuditEvent struct {
 	IPAddress    *string                `json:"ip_address,omitempty"`
 	UserAgent    *string                `json:"user_agent,omitempty"`
 	CreatedAt    time.Time              `json:"created_at"`
+
+	// PrevRowHash and RowHash carry the SHA-256 tamper-proofing chain. They
+	// are hex-encoded for readability in exports and API payloads; the first
+	// record of a chain has a prev_row_hash of 32 zero bytes. Empty means the
+	// record predates the hash chain (legacy data) and is excluded from
+	// verification.
+	PrevRowHash string `json:"prev_row_hash,omitempty"`
+	RowHash     string `json:"row_hash,omitempty"`
 }
 
 type AuditFilter struct {

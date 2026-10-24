@@ -74,6 +74,11 @@ type FXRates interface {
 	GetRates(ctx context.Context, from, to string) (*domain.RateResponse, error)
 }
 
+// BalanceAlertService evaluates wallet balances against configured thresholds.
+type BalanceAlertService interface {
+	EvaluateWalletBalances(ctx context.Context, walletID string, balances map[string]decimal.Decimal) error
+}
+
 type Service interface {
 	GetBalances(ctx context.Context) ([]AssetBalance, error)
 	GetReserveRequirement(ctx context.Context) (decimal.Decimal, error)
@@ -95,6 +100,7 @@ type service struct {
 	stellar           stellar.Client
 	fxRates           FXRates
 	webhookSvc        webhook.Service
+	balanceAlertSvc   BalanceAlertService
 	feeWallet         string
 	network           string
 	treasurySecretKey string
@@ -156,6 +162,13 @@ func WithReserveConcurrency(n int) Option {
 			n = 1
 		}
 		s.reserveConcurrency = n
+	}
+}
+
+// WithBalanceAlertService attaches a wallet balance alert service to the treasury service.
+func WithBalanceAlertService(svc BalanceAlertService) Option {
+	return func(s *service) {
+		s.balanceAlertSvc = svc
 	}
 }
 
@@ -514,6 +527,22 @@ func (s *service) ExecuteSweep(ctx context.Context, asset string, amount decimal
 		}
 		if err := s.webhookSvc.Dispatch(ctx, domain.EventTreasurySweepCompleted, payload); err != nil {
 			log.Error().Err(err).Msg("treasury: failed to dispatch sweep_completed webhook")
+		}
+	}
+
+	// Evaluate balance alerts for the fee wallet after sweep
+	if s.balanceAlertSvc != nil && s.feeWallet != "" {
+		balances, err := s.GetBalances(ctx)
+		if err == nil {
+			balanceMap := make(map[string]decimal.Decimal)
+			for _, b := range balances {
+				balanceMap[b.Asset] = b.Balance
+			}
+			// Use the fee wallet's wallet ID if available, otherwise use the public key
+			walletID := s.feeWallet
+			if err := s.balanceAlertSvc.EvaluateWalletBalances(ctx, walletID, balanceMap); err != nil {
+				log.Error().Err(err).Str("wallet_id", walletID).Msg("treasury: failed to evaluate balance alerts after sweep")
+			}
 		}
 	}
 

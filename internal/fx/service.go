@@ -46,6 +46,13 @@ type Service interface {
 	WithMarginEngine(engine MarginEngine) Service
 }
 
+// WithMarginEngine attaches tenant-level FX markup handling to the service.
+// Passing nil keeps flat pricing (the default when the engine is not wired).
+func (s *service) WithMarginEngine(engine MarginEngine) Service {
+	s.marginEngine = engine
+	return s
+}
+
 type service struct {
 	walletRepo     wallet.Repository
 	conversionRepo ConversionRepo
@@ -63,6 +70,10 @@ type service struct {
 
 	activePairsMu sync.RWMutex
 	activePairs   map[string]time.Time
+
+	// Optional hooks wired after construction.
+	marginEngine MarginEngine
+	sanity       *SanityChecker
 }
 
 // markUsedScript atomically verifies ownership and then claims a quote.
@@ -243,6 +254,12 @@ func (s *service) GetQuote(ctx context.Context, fromAsset, toAsset, amount strin
 // ExecuteConversion fetches a quote by ID from Redis, validates it has not expired
 // or been used, verifies ownership, atomically marks it used, and records the conversion.
 func (s *service) ExecuteConversion(ctx context.Context, walletID, quoteID string, minAmountOut *decimal.Decimal, maxSlippageBps *int) (*domain.Conversion, error) {
+	if maxSlippageBps != nil {
+		if err := ValidateSlippageToleranceBps(*maxSlippageBps); err != nil {
+			return nil, err
+		}
+	}
+
 	w, err := s.walletRepo.GetByID(ctx, walletID)
 	if err != nil {
 		return nil, err
@@ -281,6 +298,10 @@ func (s *service) ExecuteConversion(ctx context.Context, walletID, quoteID strin
 				return nil, fmt.Errorf("%w: destination amount %s is less than minimum required %s", domain.ErrSlippageExceeded, destAmt.String(), minAmountOut.String())
 			}
 
+			if err := s.checkSlippage(ctx, lock.FromAsset, lock.ToAsset, lock.Amount, maxSlippageBps); err != nil {
+				return nil, err
+			}
+
 			convID := uuid.New().String()
 			if err := s.lockRepo.ConsumeLock(ctx, lock.ID, convID); err != nil {
 				return nil, err
@@ -307,32 +328,27 @@ func (s *service) ExecuteConversion(ctx context.Context, walletID, quoteID strin
 		}
 	}
 
-	result, err := markUsedScript.Run(ctx, s.redis,
-		[]string{quoteKeyPrefix + quoteID}, expectedOrg, hasTenant).Result()
+	data, err := s.redis.Get(ctx, quoteKeyPrefix+quoteID).Result()
+	if err == redis.Nil {
+		return nil, domain.ErrQuoteExpired
+	}
 	if err != nil {
-		// Redis error replies may be prefixed with "ERR " by some clients.
-		msg := strings.TrimPrefix(err.Error(), "ERR ")
-		switch msg {
-		case "QUOTE_EXPIRED":
-			return nil, domain.ErrQuoteExpired
-		case "QUOTE_ALREADY_USED":
-			return nil, domain.ErrQuoteAlreadyUsed
-		case "QUOTE_OWNERSHIP_MISMATCH":
-			return nil, domain.ErrQuoteOwnershipMismatch
-		default:
-			return nil, fmt.Errorf("claim quote: %w", err)
-		}
+		return nil, fmt.Errorf("read quote: %w", err)
 	}
 
 	var q domain.Quote
-	if err := json.Unmarshal([]byte(result.(string)), &q); err != nil {
+	if err := json.Unmarshal([]byte(data), &q); err != nil {
 		return nil, fmt.Errorf("decode quote: %w", err)
 	}
 
-	// Ownership is enforced atomically in markUsedScript; this is a defensive
-	// re-check for a quote that decoded differently than it was written.
+	// Validate ownership before querying depth. The later atomic claim checks
+	// ownership and usage again so concurrent requests cannot both win.
 	if w.TenantID == nil || q.OrgID != *w.TenantID {
 		return nil, domain.ErrQuoteOwnershipMismatch
+	}
+
+	if q.Used {
+		return nil, domain.ErrQuoteAlreadyUsed
 	}
 
 	// Expiry: reject if the quote has already expired server-side (even by 1 millisecond).
@@ -349,9 +365,27 @@ func (s *service) ExecuteConversion(ctx context.Context, walletID, quoteID strin
 		return nil, fmt.Errorf("%w: destination amount %s is less than minimum required %s", domain.ErrSlippageExceeded, q.ToAmount.String(), minAmountOut.String())
 	}
 
-	if maxSlippageBps != nil {
-		if err := ValidateSlippageToleranceBps(*maxSlippageBps); err != nil {
-			return nil, err
+	if err := s.checkSlippage(ctx, q.FromAsset, q.ToAsset, q.FromAmount, maxSlippageBps); err != nil {
+		return nil, err
+	}
+	// Depth retrieval may take longer than the remaining quote lifetime.
+	if !q.ExpiresAt.IsZero() && !time.Now().UTC().Before(q.ExpiresAt) {
+		return nil, domain.ErrQuoteExpired
+	}
+	_, err = markUsedScript.Run(ctx, s.redis,
+		[]string{quoteKeyPrefix + quoteID}, expectedOrg, hasTenant).Result()
+	if err != nil {
+		// Redis error replies may be prefixed with "ERR " by some clients.
+		msg := strings.TrimPrefix(err.Error(), "ERR ")
+		switch msg {
+		case "QUOTE_EXPIRED":
+			return nil, domain.ErrQuoteExpired
+		case "QUOTE_ALREADY_USED":
+			return nil, domain.ErrQuoteAlreadyUsed
+		case "QUOTE_OWNERSHIP_MISMATCH":
+			return nil, domain.ErrQuoteOwnershipMismatch
+		default:
+			return nil, fmt.Errorf("claim quote: %w", err)
 		}
 	}
 
@@ -573,4 +607,30 @@ func (s *service) backgroundRefresh(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (s *service) checkSlippage(ctx context.Context, from, to string, amount decimal.Decimal, tolerance *int) error {
+	for _, provider := range s.providers {
+		depth, ok := provider.(DepthProvider)
+		if !ok {
+			continue
+		}
+		supported := false
+		for _, pair := range provider.SupportedPairs() {
+			if pair == from+"-"+to {
+				supported = true
+				break
+			}
+		}
+		if !supported {
+			continue
+		}
+		levels, err := depth.GetDepth(ctx, from, to)
+		if err != nil {
+			return fmt.Errorf("%w: fetch conversion depth: %w", ErrDepthUnavailable, err)
+		}
+		_, err = NewSlippageGuard().Check(amount, tolerance, levels)
+		return err
+	}
+	return ErrDepthUnavailable
 }

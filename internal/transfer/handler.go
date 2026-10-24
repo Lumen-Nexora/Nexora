@@ -50,13 +50,14 @@ func (h *Handler) TransactionRoutes() func(r chi.Router) {
 }
 
 type createTransferRequest struct {
-	FromWalletID      string   `json:"from_wallet_id" validate:"required,uuid"`
-	ToWalletID        string   `json:"to_wallet_id"   validate:"required,uuid"`
-	Asset             string   `json:"asset"          validate:"required"`
-	Amount            string   `json:"amount"         validate:"required"`
-	Reference         string   `json:"reference,omitempty"`
-	ExternalReference *string  `json:"external_reference,omitempty"`
-	Tags              []string `json:"tags,omitempty"`
+	FromWalletID      string                    `json:"from_wallet_id" validate:"required,uuid"`
+	ToWalletID        string                    `json:"to_wallet_id"   validate:"required,uuid"`
+	Asset             string                    `json:"asset"          validate:"required"`
+	Amount            string                    `json:"amount"         validate:"required"`
+	Reference         string                    `json:"reference,omitempty"`
+	ExternalReference *string                   `json:"external_reference,omitempty"`
+	Tags              []string                  `json:"tags,omitempty"`
+	TravelRule        *domain.TravelRuleRequest `json:"travel_rule,omitempty"`
 }
 
 type transferResponse struct {
@@ -141,6 +142,7 @@ func (h *Handler) initiateTransfer(w http.ResponseWriter, r *http.Request) {
 		ExternalReference: req.ExternalReference,
 		Tags:              req.Tags,
 		IdempotencyKey:    idempotencyKey,
+		TravelRule:        req.TravelRule,
 	})
 	if err != nil {
 		api.HandleDomainError(w, err)

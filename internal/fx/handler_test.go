@@ -3,6 +3,7 @@ package fx
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -37,6 +38,10 @@ func (m *mockFXService) GetRates(ctx context.Context, from, to string) (*RateRes
 	}
 	return nil, nil
 }
+
+// WithMarginEngine satisfies the fx.Service interface; handler tests never
+// exercise tenant margins, so the engine stays nil.
+func (m *mockFXService) WithMarginEngine(MarginEngine) Service { return m }
 
 func (m *mockFXService) BindQuoteToTransfer(ctx context.Context, tenantID, quoteID, transferID string) (*domain.Quote, error) {
 	return nil, nil
@@ -98,5 +103,29 @@ func TestHandler_GetRates(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+func TestHandlerSlippageDetails(t *testing.T) {
+	tolerance := 5
+	calc, rejection := NewSlippageGuard().Check(decimal.NewFromInt(2000), &tolerance, sampleOrderbook())
+	h := NewHandler(&mockFXService{executeConversionFunc: func(context.Context, string, string, *decimal.Decimal, *int) (*domain.Conversion, error) {
+		return nil, rejection
+	}})
+	req := httptest.NewRequest(http.MethodPost, "/convert", bytes.NewBufferString(`{"wallet_id":"550e8400-e29b-41d4-a716-446655440000","quote_id":"550e8400-e29b-41d4-a716-446655440000","max_slippage_bps":5}`))
+	w := httptest.NewRecorder()
+	h.convert(w, req)
+	var response struct {
+		Error struct {
+			Code      string              `json:"code"`
+			RequestID string              `json:"request_id"`
+			Details   SlippageCalculation `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusBadRequest || response.Error.Code != "SLIPPAGE_EXCEEDED" || response.Error.RequestID == "" || !response.Error.Details.PriceImpactPct.Equal(calc.PriceImpactPct) || response.Error.Details.Allowed {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 }

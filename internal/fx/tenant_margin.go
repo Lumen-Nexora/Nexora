@@ -10,7 +10,6 @@ import (
 	"github.com/Lumen-Nexora/Nexora/internal/api"
 	"github.com/Lumen-Nexora/Nexora/internal/audit"
 	"github.com/Lumen-Nexora/Nexora/internal/domain"
-	"github.com/Lumen-Nexora/Nexora/internal/postgres"
 	"github.com/Lumen-Nexora/Nexora/internal/tenant"
 	"github.com/go-chi/chi/v5"
 	"github.com/shopspring/decimal"
@@ -19,19 +18,19 @@ import (
 // MarginEngine calculates customer quotes with custom tenant markups and enforces margin ceilings.
 type MarginEngine interface {
 	CalculateCustomerQuote(ctx context.Context, tenantID, fromAsset, toAsset string, amount decimal.Decimal, baseRate decimal.Decimal) (decimal.Decimal, *domain.TenantFXMargin, error)
-	Repo() postgres.TenantFXRepo
+	Repo() domain.TenantFXRepo
 }
 
 type marginEngine struct {
-	repo postgres.TenantFXRepo
+	repo domain.TenantFXRepo
 }
 
 // NewMarginEngine constructs a margin engine with persistence and tier resolution.
-func NewMarginEngine(repo postgres.TenantFXRepo) MarginEngine {
+func NewMarginEngine(repo domain.TenantFXRepo) MarginEngine {
 	return &marginEngine{repo: repo}
 }
 
-func (e *marginEngine) Repo() postgres.TenantFXRepo {
+func (e *marginEngine) Repo() domain.TenantFXRepo {
 	return e.repo
 }
 
@@ -63,7 +62,7 @@ func (e *marginEngine) CalculateCustomerQuote(
 
 	// Enforce margin ceilings
 	if margin.MarkupBps < margin.MinMarginBps || margin.MarkupBps > margin.MaxMarginBps ||
-		margin.MarkupBps < postgres.MinAllowableMarginBps || margin.MarkupBps > postgres.MaxAllowableMarginBps {
+		margin.MarkupBps < domain.MinAllowableMarginBps || margin.MarkupBps > domain.MaxAllowableMarginBps {
 		return decimal.Zero, nil, domain.ErrMarginCeilingExceeded
 	}
 
@@ -187,7 +186,7 @@ func (h *MarginHandler) createMargin(w http.ResponseWriter, r *http.Request) {
 	if req.MinMarginBps != nil {
 		minMargin = *req.MinMarginBps
 	}
-	maxMargin := postgres.MaxAllowableMarginBps
+	maxMargin := domain.MaxAllowableMarginBps
 	if req.MaxMarginBps != nil {
 		maxMargin = *req.MaxMarginBps
 	}

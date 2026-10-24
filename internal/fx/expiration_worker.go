@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Lumen-Nexora/Nexora/internal/postgres"
+	"github.com/Lumen-Nexora/Nexora/internal/dbtx"
 	"github.com/Lumen-Nexora/Nexora/internal/queue"
 	"github.com/hibiken/asynq"
 	"github.com/rs/zerolog/log"
@@ -38,7 +38,7 @@ type RateLockExpirationWorker interface {
 }
 
 type expirationWorker struct {
-	db        postgres.DB
+	db        dbtx.DB
 	memStore  *memoryLockRepository
 	telemetry ExpirationTelemetry
 	telMu     sync.RWMutex
@@ -49,7 +49,7 @@ type expirationWorker struct {
 }
 
 // NewExpirationWorker constructs an Asynq-powered rate lock cleanup worker.
-func NewExpirationWorker(db postgres.DB) RateLockExpirationWorker {
+func NewExpirationWorker(db dbtx.DB) RateLockExpirationWorker {
 	return &expirationWorker{
 		db: db,
 	}
@@ -128,8 +128,8 @@ func (w *expirationWorker) ExpireBatch(ctx context.Context, batchSize int) (int6
 
 	var expiredCount int64
 
-	err := postgres.RunInTx(ctx, w.db, func(txCtx context.Context) error {
-		tx := postgres.TxFromContext(txCtx, w.db)
+	err := dbtx.RunInTx(ctx, w.db, func(txCtx context.Context) error {
+		tx := dbtx.TxFromContext(txCtx, w.db)
 
 		// 1. Query database for locks where expires_at < NOW() AND consumed_at IS NULL AND status = 'active'
 		// 2. Updates status to expired in atomic batches of 100

@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -69,6 +70,13 @@ func Encrypt(plaintext, key []byte) ([]byte, error) {
 // Decrypt decrypts a ciphertext produced by Encrypt.
 // Supports both versioned envelopes (v1::...) and legacy format (nonce||ciphertext).
 func Decrypt(ciphertext, key []byte) ([]byte, error) {
+	// v2 envelopes are sealed under a KMS-wrapped data key (see kms.go). The
+	// caller owns the returned plaintext; signing paths use OpenSecret, which
+	// zeroizes it.
+	if isV2(ciphertext) {
+		return openV2(context.Background(), CurrentKMS(), ciphertext)
+	}
+
 	if len(key) != 32 {
 		return nil, ErrKeyLength
 	}

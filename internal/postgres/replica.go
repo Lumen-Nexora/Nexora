@@ -12,15 +12,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// DB is the subset of pgxpool.Pool used by repositories. Keeping the
-// dependency narrow allows repositories to route reads independently of writes.
-type DB interface {
-	Exec(context.Context, string, ...interface{}) (pgconn.CommandTag, error)
-	Query(context.Context, string, ...interface{}) (pgx.Rows, error)
-	QueryRow(context.Context, string, ...interface{}) pgx.Row
-	Begin(context.Context) (pgx.Tx, error)
-}
-
 type ReplicaAwareDB struct {
 	primary   *pgxpool.Pool
 	replica   *pgxpool.Pool

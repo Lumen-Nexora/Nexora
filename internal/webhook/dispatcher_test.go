@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/Lumen-Nexora/Nexora/internal/queue"
+	"github.com/alicebob/miniredis/v2"
+	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,10 +32,14 @@ func (m *mockRedis) Close() {
 	m.mr.Close()
 }
 
-func (m *mockRedis) ClientOptions() *redis.Options {
-	return &redis.Options{
-		Addr: m.mr.Addr(),
-	}
+// QueueOptions connects an asynq client to the in-memory Redis.
+func (m *mockRedis) QueueOptions() asynq.RedisClientOpt {
+	return asynq.RedisClientOpt{Addr: m.mr.Addr()}
+}
+
+// Client returns a go-redis client for the in-memory Redis.
+func (m *mockRedis) Client() redis.UniversalClient {
+	return redis.NewClient(&redis.Options{Addr: m.mr.Addr()})
 }
 
 func TestDispatcher_SendsNonEmptyBodyMatchingPayload(t *testing.T) {
@@ -113,26 +118,34 @@ func TestDispatcher_SSRFAndAsync(t *testing.T) {
 	rdb := newMockRedis(t)
 	defer rdb.Close()
 
-	qClient := queue.NewClientWithOptions(rdb.ClientOptions())
+	qClient := queue.NewClientWithOptions(rdb.QueueOptions())
 	defer qClient.Close()
 
-	svc := NewService(repo, rdb, qClient, 120, false)
+	svc := NewService(repo, rdb.Client(), qClient, 120, false)
 	Dispatcher := NewDispatcher(svc, qClient)
 
-	ep, _, err := svc.RegisterEndpoint(context.Background(), "https://example.com/webhook", []string{"transfer.completed"})
+	ep, _, err := svc.RegisterEndpoint(context.Background(), "https://example.com/webhook", []string{domain.EventTransferSettled})
 	require.NoError(t, err)
 
-	err = Dispatcher.Dispatch(context.Background(), "transfer.completed", map[string]string{"id": "tx_123"})
-	assert.NoError(t, err)
+	// RegisterEndpoint already refuses a loopback URL, so seed one directly to
+	// prove Dispatch re-checks the SSRF guard (e.g. after DNS has changed).
+	loopbackEp := &domain.WebhookEndpoint{
+		ID:     "ep-loopback",
+		URL:    "http://127.0.0.1/webhook",
+		Events: []string{domain.EventTransferSettled},
+		Active: true,
+	}
+	require.NoError(t, repo.CreateEndpoint(context.Background(), loopbackEp))
 
-	// Test loopback URL rejection
-	loopbackEp, _, err := svc.RegisterEndpoint(context.Background(), "http://127.0.0.1/webhook", []string{"transfer.completed"})
-	require.NoError(t, err)
-	err = Dispatcher.Dispatch(context.Background(), "transfer.completed", map[string]string{"id": "tx_123"})
+	err = Dispatcher.Dispatch(context.Background(), domain.EventTransferSettled, map[string]string{"id": "tx_123"})
 	assert.NoError(t, err) // Dispatch should skip unsafe endpoints and not fail
 
-	_ = loopbackEp
-	_ = ep
+	safe, err := repo.ListDeliveries(context.Background(), ep.ID, 10, 0)
+	require.NoError(t, err)
+	assert.Len(t, safe, 1)
+	unsafe, err := repo.ListDeliveries(context.Background(), loopbackEp.ID, 10, 0)
+	require.NoError(t, err)
+	assert.Empty(t, unsafe)
 }
 
 func TestDispatcher_TimeoutAndMetadata(t *testing.T) {
@@ -155,10 +168,10 @@ func TestDispatcher_ComprehensiveSSRFAndTimeoutScenarios(t *testing.T) {
 	rdb := newMockRedis(t)
 	defer rdb.Close()
 
-	qClient := queue.NewClientWithOptions(rdb.ClientOptions())
+	qClient := queue.NewClientWithOptions(rdb.QueueOptions())
 	defer qClient.Close()
 
-	svc := NewService(repo, rdb, qClient, 120, false)
+	svc := NewService(repo, rdb.Client(), qClient, 120, false)
 	_ = NewDispatcher(svc, qClient)
 
 	ctx := context.Background()

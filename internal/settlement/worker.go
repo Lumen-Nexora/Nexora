@@ -26,6 +26,9 @@ func NewWorker(engine *Engine) *Worker {
 // WithPoller attaches a FallbackPoller for telemetry and fallback coordination.
 func (w *Worker) WithPoller(poller *FallbackPoller) *Worker {
 	w.poller = poller
+	if poller != nil && w.engine != nil && w.engine.velocity != nil {
+		poller.WithVelocityLimiter(w.engine.velocity)
+	}
 	return w
 }
 
@@ -77,6 +80,9 @@ func (w *Worker) HandleProcessTransfer(ctx context.Context, task *asynq.Task) er
 	if tx.Status == domain.StatusFailed || tx.Status == domain.StatusReconciliationFailed {
 		logger.Warn().Str("tx_id", payload.TransactionID).Str("status", string(tx.Status)).Msg("skipping already-failed transaction")
 		_ = w.engine.txRepo.UpdateStatus(ctx, payload.TransactionID, domain.StatusFailed, tx.TxHash)
+		if tx.Status == domain.StatusFailed {
+			w.engine.rollbackVelocity(ctx, tx)
+		}
 		if transferLock != nil {
 			_ = transferLock.Release(ctx)
 		}
@@ -89,7 +95,9 @@ func (w *Worker) HandleProcessTransfer(ctx context.Context, task *asynq.Task) er
 			w.poller.RecordSubmissionFailure(err)
 		}
 		if !strings.Contains(err.Error(), "awaiting reconciliation") {
-			_ = w.engine.txRepo.UpdateStatus(ctx, payload.TransactionID, domain.StatusFailed, "")
+			if updateErr := w.engine.txRepo.UpdateStatus(ctx, payload.TransactionID, domain.StatusFailed, ""); updateErr == nil {
+				w.engine.rollbackVelocity(ctx, tx)
+			}
 			if transferLock != nil {
 				_ = transferLock.Release(ctx)
 			}

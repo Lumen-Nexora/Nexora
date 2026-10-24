@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/Lumen-Nexora/Nexora/internal/tenant"
@@ -164,4 +165,35 @@ func (r *WalletBalanceAlertRepo) GetActiveAlertsForWallet(ctx context.Context, w
 		items = append(items, a)
 	}
 	return items, rows.Err()
+}
+
+// GetCooldown retrieves the cooldown record for a specific alert, wallet, and asset combination
+func (r *WalletBalanceAlertRepo) GetCooldown(ctx context.Context, alertID, walletID, assetCode, assetIssuer string) (lastTriggeredAt time.Time, cooldownWindow int, exists bool, err error) {
+	query := `SELECT last_triggered_at, cooldown_window_seconds
+		FROM wallet_balance_alert_cooldowns
+		WHERE alert_id=$1 AND wallet_id=$2 AND asset_code=$3 AND COALESCE(asset_issuer, '')=$4`
+
+	err = r.db.QueryRow(ctx, query, alertID, walletID, assetCode, nullableString(assetIssuer)).Scan(&lastTriggeredAt, &cooldownWindow)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, 0, false, nil
+	}
+	if err != nil {
+		return time.Time{}, 0, false, fmt.Errorf("get cooldown: %w", err)
+	}
+	return lastTriggeredAt, cooldownWindow, true, nil
+}
+
+// UpsertCooldown creates or updates a cooldown record for an alert
+func (r *WalletBalanceAlertRepo) UpsertCooldown(ctx context.Context, alertID, walletID, assetCode, assetIssuer string, lastTriggeredAt time.Time, cooldownWindow int) error {
+	query := `INSERT INTO wallet_balance_alert_cooldowns
+		(alert_id, wallet_id, asset_code, asset_issuer, last_triggered_at, cooldown_window_seconds, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+		ON CONFLICT (alert_id, wallet_id, asset_code, COALESCE(asset_issuer, ''))
+		DO UPDATE SET last_triggered_at=$5, updated_at=NOW()`
+
+	_, err := r.db.Exec(ctx, query, alertID, walletID, assetCode, nullableString(assetIssuer), lastTriggeredAt, cooldownWindow)
+	if err != nil {
+		return fmt.Errorf("upsert cooldown: %w", err)
+	}
+	return nil
 }

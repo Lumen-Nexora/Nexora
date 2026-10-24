@@ -156,3 +156,6 @@ func (m *mockService) Export(ctx context.Context, filter domain.AuditFilter, for
 	}
 	return []byte(`{"events":[{"id":"evt-1"}]}`), "application/json", nil
 }
+func (m *mockService) Proof(ctx context.Context, txID string) (*SettlementProof, error) {
+	return &SettlementProof{TransactionID: txID, Root: "root", Leaf: "leaf", Proof: []string{}}, nil
+}

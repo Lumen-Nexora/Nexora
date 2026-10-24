@@ -16,6 +16,7 @@ import (
 	"github.com/Lumen-Nexora/Nexora/internal/claimable"
 	"github.com/Lumen-Nexora/Nexora/internal/compliance"
 	"github.com/Lumen-Nexora/Nexora/internal/config"
+	"github.com/Lumen-Nexora/Nexora/internal/crypto"
 	"github.com/Lumen-Nexora/Nexora/internal/fees"
 	"github.com/Lumen-Nexora/Nexora/internal/fx"
 	"github.com/Lumen-Nexora/Nexora/internal/indexer"
@@ -111,11 +112,21 @@ func main() {
 	stellarClient := stellar.NewClient(cfg.StellarLiveHorizonURL, cfg.StellarLiveNetwork, cfg.StellarHorizonTimeout)
 	testStellarClient := stellar.NewClient(cfg.StellarTestnetHorizonURL, cfg.StellarTestnetNetwork, cfg.StellarHorizonTimeout)
 	clientResolver := stellar.NewModeAwareClients(stellarClient, testStellarClient)
+	// Custodial seeds are sealed under KMS-wrapped data keys when a KMS is
+	// configured (#97). Signers open them only for the moment of signing, and
+	// seeds sealed before the KMS was enabled keep working via the master key.
+	if kms, err := crypto.ConfigureKMS(context.Background(), cfg.KMS()); err != nil {
+		log.Fatal().Err(err).Msg("configure KMS")
+	} else if kms != nil {
+		log.Info().Str("provider", kms.Name()).Dur("rotation_period", cfg.KMSRotationPeriod).Msg("custodial seed envelope encryption enabled")
+	}
 	signer := stellar.NewEnvSigner(cfg.MasterEncryptionKey, cfg.StellarLiveNetwork)
 	testSigner := stellar.NewEnvSigner(cfg.MasterEncryptionKey, cfg.StellarTestnetNetwork)
 	signerResolver := stellar.NewModeAwareSigners(signer, testSigner)
 
 	feeSvc := fees.NewService(feeRepo)
+	networkFeeAccounting := fees.NewNetworkFeeAccounting(feeRepo, fees.NewCoinGeckoHistoricalRateSource())
+	networkFeeRecorder := fees.NewNetworkFeeSettlementRecorder(networkFeeAccounting)
 	// The wallet service signs with the wallet's own stored secret, so the
 	// worker can return an unmapped deposit to its sender.
 	walletSvc := wallet.NewServiceWithNetwork(walletRepo, stellarClient, cfg.MasterEncryptionKey, cfg.StellarLiveNetwork).
@@ -135,7 +146,9 @@ func main() {
 			"USDC": cfg.StellarUSDCIssuer,
 			"EURC": cfg.StellarEURCIssuer,
 		}, cfg.PlatformFeeWalletPublicKey,
-	).WithClientResolver(clientResolver).WithSignerResolver(signerResolver)
+	).WithClientResolver(clientResolver).
+		WithSignerResolver(signerResolver).
+		WithSettlementDetailsRecorder(networkFeeRecorder)
 	settlementWorker := settlement.NewWorker(engine)
 
 	idx := indexer.NewWithConfig(walletRepo, txRepo, stellarClient, indexer.Config{
@@ -192,6 +205,18 @@ func main() {
 	}
 
 	alertClient := alerting.NewClient(cfg.AlertWebhookURL, "nexora-worker")
+
+	// Periodically re-verify the tamper-proof audit hash chain and page
+	// security operations the moment a modified, inserted, or deleted audit
+	// record is detected. Set AUDIT_CHAIN_VERIFY_INTERVAL_SEC=0 to disable.
+	if cfg.AuditChainVerifyIntervalSec > 0 {
+		chainVerifier := audit.NewChainVerifier(
+			audit.NewTamperProofRepo(db),
+			audit.NewAlertClientAlerter(alertClient),
+			time.Duration(cfg.AuditChainVerifyIntervalSec)*time.Second,
+		)
+		go chainVerifier.Run(ctx)
+	}
 	asynqOpt, err := queue.AsynqRedisOptions(cfg.RedisURL, cfg.RedisSentinelMasterName, cfg.RedisSentinelAddrs, cfg.RedisSentinelPassword)
 	if err != nil {
 		log.Fatal().Err(err).Msg("configure asynq redis")
@@ -277,7 +302,35 @@ func main() {
 		cfg.StellarUSDCIssuer, cfg.StellarEURCIssuer,
 		treasury.OptionsFromConfig(cfg.TreasuryBaseReserve, cfg.TreasuryReserveCacheTTLSec, cfg.TreasuryReserveConcurrency)...,
 	)
-	treasuryWorker := treasury.NewWorker(treasurySvc)
+	// The zero-sum ledger invariant checker (#117) halts automated sweeps
+	// through sweep_halts; both sweep handlers consult it before moving funds.
+	invariantRepo := postgres.NewInvariantRepo(repoDB)
+	treasuryWorker := treasury.NewWorker(treasurySvc).WithSweepGuard(invariantRepo)
+	// Executes consolidations accepted by the API (#95).
+	consolidator := wallet.NewConsolidator(walletRepo, wallet.NewConsolidationRepository(repoDB), wallet.NewClosureRepository(repoDB),
+		stellarClient, signer, audit.NewService(postgres.NewAuditRepo(repoDB)), nil).
+		WithClientResolver(clientResolver).
+		WithSignerResolver(signerResolver)
+	// Custodial deposit sweep (#94): only built when thresholds are set, and
+	// even then it touches only tenants that opted in via custody settings.
+	var custodialSweepEnabled bool
+	if cfg.CustodialSweepThresholds != "" {
+		thresholds, err := wallet.ParseSweepThresholds(cfg.CustodialSweepThresholds)
+		if err != nil {
+			log.Fatal().Err(err).Msg("parse CUSTODIAL_SWEEP_THRESHOLDS")
+		}
+		baseReserve, err := decimal.NewFromString(cfg.TreasuryBaseReserve)
+		if err != nil {
+			log.Fatal().Err(err).Msg("parse TREASURY_BASE_RESERVE")
+		}
+		sweepEngine := wallet.NewSweepEngine(wallet.NewSweepRepository(repoDB), stellarClient, signer, webhookSvc, wallet.SweepConfig{
+			Thresholds:  thresholds,
+			BaseReserve: baseReserve,
+			Concurrency: cfg.CustodialSweepConcurrency,
+		}).WithClientResolver(clientResolver).WithSignerResolver(signerResolver)
+		treasuryWorker.WithCustodialSweeper(sweepEngine)
+		custodialSweepEnabled = true
+	}
 
 	// Claimable balances need the same signer and Horizon client as settlement:
 	// creating one spends the org's funds and revoking one claims them back.
@@ -305,6 +358,7 @@ func main() {
 	var complianceWorker *compliance.Worker
 	if cfg.ComplianceEnabled {
 		sanctionsSet := compliance.NewSanctionsSet()
+		sanctionsSet.RequireSources(compliance.SourceOFAC, compliance.SourceUN, compliance.SourceEU)
 		if err := sanctionsSet.LoadFromRepository(ctx, complianceRepo); err != nil {
 			log.Error().Err(err).Msg("compliance: initial sanctions load failed; transfers will be held until it succeeds")
 		}
@@ -328,7 +382,7 @@ func main() {
 		}
 
 		screener := compliance.NewCompositeScreener(
-			compliance.NewSanctionsScreener(sanctionsSet, cfg.ComplianceFuzzyThreshold),
+			compliance.NewSanctionsScreenerWithSimilarity(sanctionsSet, cfg.ComplianceSimilarityThreshold),
 			velocityScreener,
 		)
 
@@ -339,7 +393,7 @@ func main() {
 			compliance.NewHTTPSDNSource(cfg.OFACSDNURL, nil),
 			sanctionsSet,
 			webhookSvc,
-		)
+		).WithOfficialSources(cfg.UNSanctionsURL, cfg.EUSanctionsURL)
 	}
 
 	scheduleWorker := schedule.NewWorker(scheduleRepo, transferSvc)
@@ -368,7 +422,31 @@ func main() {
 		assets.NewRegistry(cfg.StellarUSDCIssuer, cfg.StellarEURCIssuer),
 		cfg.PlatformFeeWalletPublicKey,
 	).WithDriftThreshold(driftThreshold)
-	reconcileWorker := reconcile.NewWorker(reconcileSvc)
+	if cfg.FraudDetectionEnabled {
+		pagerDuty := alerting.NewPagerDutyClient(alerting.PagerDutyConfig{
+			SecurityRoutingKey:   cfg.PagerDutySecurityRoutingKey,
+			ComplianceRoutingKey: cfg.PagerDutyComplianceRoutingKey,
+			Service:              "nexora-worker",
+		})
+		reconcileSvc = reconcileSvc.WithFraudDetector(
+			reconcile.NewFraudDetector(reconcile.FraudConfig{}, nil, pagerDuty),
+		)
+	}
+	if cfg.ReconciliationAutoRemediationEnabled {
+		// Transient Horizon-lag discrepancies are re-checked on each ledger
+		// close and escalated if they persist (#120).
+		reconcileSvc = reconcileSvc.WithAutoRemediator(
+			reconcile.NewAutoRemediator(reconcile.AutoRemediationConfig{
+				TransientWindow: cfg.ReconciliationAutoRemediationWindow,
+				MaxCycles:       cfg.ReconciliationAutoRemediationMaxCycles,
+				MaxAge:          cfg.ReconciliationAutoRemediationMaxAge,
+			}, postgres.NewAutoRemediationRepo(db), txRepo).
+				WithLedgerSource(reconcile.NewHorizonLedgerSource(cfg.StellarLiveHorizonURL, cfg.StellarHorizonTimeout)).
+				WithAuditTrail(audit.NewService(postgres.NewAuditRepo(repoDB))),
+		)
+	}
+	reconcileWorker := reconcile.NewWorker(reconcileSvc).
+		WithInvariantChecker(reconcile.NewInvariantChecker(invariantRepo, invariantRepo, alertClient))
 
 	srv := asynq.NewServer(asynqOpt, asynq.Config{
 
@@ -387,12 +465,15 @@ func main() {
 	mux.HandleFunc(queue.TypeRefundUnmappedDeposits, indexerWorker.HandleRefundUnmappedDeposits)
 	mux.HandleFunc(queue.TypeReconcile, reconcileWorker.HandleReconcile)
 	mux.HandleFunc(queue.TypeBalanceReconcile, reconcileWorker.HandleBalanceReconcile)
+	mux.HandleFunc(queue.TypeLedgerInvariant, reconcileWorker.HandleLedgerInvariant)
 	mux.HandleFunc(queue.TypeForceSettle, reconcileWorker.HandleForceSettle)
 	mux.HandleFunc(queue.TypeReconcileWallet, reconcileWorker.HandleWalletReconcile)
 	mux.HandleFunc(queue.TypeWebhookDeliver, webhookWorker.HandleDeliver)
 	mux.HandleFunc(queue.TypeTenantWebhookDeliver, webhookWorker.HandleDeliver)
 	mux.HandleFunc(queue.TypeRunSchedules, scheduleWorker.HandleRunSchedules)
 	mux.HandleFunc(queue.TypeTreasurySweep, treasuryWorker.HandleSweep)
+	mux.HandleFunc(queue.TypeCustodialSweep, treasuryWorker.HandleCustodialSweep)
+	mux.HandleFunc(queue.TypeConsolidateWallets, consolidator.HandleConsolidate)
 	mux.HandleFunc(queue.TypeExpireClaimableBalances, claimableWorker.HandleExpiry)
 	mux.HandleFunc(queue.TypeExpireRateLocks, rateLockExpirationWorker.HandleExpireLocks)
 	if complianceWorker != nil {
@@ -406,11 +487,20 @@ func main() {
 		log.Fatal().Err(err).Msg("register ledger sync scheduler")
 	}
 
-	// Reconciliation runs every 5 minutes in the low-priority queue so it does
+	// Reconciliation runs every minute in the low-priority queue so it does
 	// not compete with live settlement tasks.
 	reconcileTask := asynq.NewTask(queue.TypeReconcile, nil, asynq.Queue("low"))
-	if _, err := scheduler.Register("@every 5m", reconcileTask); err != nil {
+	if _, err := scheduler.Register("@every 1m", reconcileTask); err != nil {
 		log.Fatal().Err(err).Msg("register reconcile scheduler")
+	}
+
+	// The zero-sum ledger invariant is verified every 60 seconds on the
+	// low-priority queue. Unique stops runs piling up behind a backlog, and
+	// no retries are needed because the next tick re-evaluates anyway.
+	invariantTask := asynq.NewTask(queue.TypeLedgerInvariant, nil,
+		asynq.Queue("low"), asynq.MaxRetry(0), asynq.Timeout(30*time.Second), asynq.Unique(55*time.Second))
+	if _, err := scheduler.Register("@every 60s", invariantTask); err != nil {
+		log.Fatal().Err(err).Msg("register ledger invariant scheduler")
 	}
 
 	// Balance drift snapshots are refreshed hourly; discrepancies are flagged
@@ -434,6 +524,15 @@ func main() {
 	treasurySweepTask := asynq.NewTask(queue.TypeTreasurySweep, nil, asynq.Queue("low"))
 	if _, err := scheduler.Register("@daily", treasurySweepTask); err != nil {
 		log.Fatal().Err(err).Msg("register treasury sweep scheduler")
+	}
+
+	// The custodial sweep is unique per run window so a slow scan of many
+	// wallets is never overlapped by the next tick.
+	if custodialSweepEnabled {
+		custodialSweepTask := asynq.NewTask(queue.TypeCustodialSweep, nil, asynq.Queue("low"), asynq.Unique(30*time.Minute))
+		if _, err := scheduler.Register(cfg.CustodialSweepInterval, custodialSweepTask); err != nil {
+			log.Fatal().Err(err).Msg("register custodial sweep scheduler")
+		}
 	}
 
 	// The expiry tracker runs every 5 minutes so an unclaimed balance is marked

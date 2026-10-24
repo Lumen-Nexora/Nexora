@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/Lumen-Nexora/Nexora/internal/api"
 	"github.com/Lumen-Nexora/Nexora/internal/apikey"
 	"github.com/Lumen-Nexora/Nexora/internal/auth"
+	"github.com/Lumen-Nexora/Nexora/internal/compliance"
 	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/Lumen-Nexora/Nexora/internal/postgres"
 	"github.com/Lumen-Nexora/Nexora/internal/tenant"
@@ -365,6 +367,81 @@ func RequireNotViewer(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// GeoAuditLogger records a rejected request in the audit trail. audit.Service
+// satisfies it.
+type GeoAuditLogger interface {
+	Log(r *http.Request, action, resourceType, resourceID string, metadata map[string]interface{})
+}
+
+// GeoScreenOptions wires jurisdiction screening into the server. A nil
+// Screener disables the middleware entirely.
+type GeoScreenOptions struct {
+	Screener *compliance.GeoScreener
+	Audit    GeoAuditLogger
+}
+
+// GeoScreening rejects callers from sanctioned jurisdictions and anonymizing
+// networks (VPN, Tor, hosting, proxy) before they reach tenant routes. Every
+// rejection is logged and written to the audit trail with the resolved country
+// and the reason, while the response stays deliberately generic.
+func GeoScreening(opts GeoScreenOptions) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		if opts.Screener == nil || !opts.Screener.Configured() {
+			return next
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ip := remoteIP(r)
+			decision, err := opts.Screener.Screen(r.Context(), ip)
+			if err != nil {
+				zerolog.Ctx(r.Context()).Error().Err(err).
+					Str("ip", ip.String()).
+					Str("reason", decision.Reason).
+					Msg("compliance: geo screening lookup failed")
+			} else if decision.Allowed {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if decision.Allowed {
+				// Fail-open lookup: the screener could not resolve the address
+				// but policy permits continuing. Log and let the request through.
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			zerolog.Ctx(r.Context()).Warn().
+				Str("ip", ip.String()).
+				Str("country", decision.CountryCode).
+				Str("reason", decision.Reason).
+				Strs("flags", decision.Flags).
+				Msg("compliance: request rejected by geo screening")
+
+			if opts.Audit != nil {
+				opts.Audit.Log(r, "security.geo_blocked", "http_request", r.Header.Get("X-Request-ID"), map[string]interface{}{
+					"ip":           ip.String(),
+					"country_code": decision.CountryCode,
+					"country_name": decision.CountryName,
+					"reason":       decision.Reason,
+					"flags":        decision.Flags,
+					"method":       r.Method,
+					"path":         r.URL.Path,
+				})
+			}
+
+			api.Error(w, http.StatusForbidden, "GEO_BLOCKED",
+				"request blocked by jurisdiction or anonymizer policy")
+		})
+	}
+}
+
+func remoteIP(r *http.Request) net.IP {
+	addr := strings.TrimSpace(r.RemoteAddr)
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		addr = host
+	}
+	return net.ParseIP(strings.Trim(addr, "[]"))
 }
 
 func RequirePlatformOperator() func(http.Handler) http.Handler {

@@ -153,7 +153,9 @@ func (s *service) CreateWallet(ctx context.Context, ownerPublicKey ...string) (*
 
 	}
 
-	encryptedBytes, err := crypto.Encrypt([]byte(secretKey), s.masterKey)
+	// With a KMS configured the seed is sealed under a fresh, KMS-wrapped
+	// data key (v2 envelope); otherwise under the master key (v1).
+	encryptedBytes, err := crypto.SealSecret(ctx, []byte(secretKey), s.masterKey)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt secret: %w", err)
 	}
@@ -278,6 +280,14 @@ func (s *service) ExecuteTransfer(
 		return "", err
 	}
 
+	// Creating or repairing the trustline up front turns the common
+	// op_no_trust / op_not_authorized failures into a deterministic preflight.
+	if creditAsset, ok := asset.(txnbuild.CreditAsset); ok {
+		if _, err := s.EnsureTrustline(ctx, walletID, creditAsset.Code, creditAsset.Issuer, amount); err != nil {
+			return "", fmt.Errorf("ensure trustline: %w", err)
+		}
+	}
+
 	acct, err := stellar.LoadAccountWithContext(ctx, s.client(ctx), w.PublicKey)
 	if err != nil {
 		return "", fmt.Errorf("load account: %w", err)
@@ -357,10 +367,24 @@ func (s *service) signerFor(ctx context.Context) stellar.Signer {
 }
 
 func (s *service) sign(ctx context.Context, tx *txnbuild.Transaction, encryptedSecret string) (*txnbuild.Transaction, error) {
-	if signer := s.signerFor(ctx); signer != nil {
-		return signer.Sign(tx, encryptedSecret)
+	signer := s.signerFor(ctx)
+	if signer == nil {
+		signer = stellar.NewEnvSigner(s.masterKey, s.stellarNetwork)
 	}
-	return stellar.NewEnvSigner(s.masterKey, s.stellarNetwork).Sign(tx, encryptedSecret)
+	return signWithStoredSecret(signer, tx, encryptedSecret)
+}
+
+// signWithStoredSecret signs with a wallet's encrypted_secret column. The
+// column holds the hex encoding of the crypto envelope (see CreateWallet),
+// while Signer expects the envelope itself, as the settlement engine and
+// claimable service already decode it. A value that is not hex is passed
+// through unchanged so a secret stored as a raw envelope still signs.
+func signWithStoredSecret(signer stellar.Signer, tx *txnbuild.Transaction, stored string) (*txnbuild.Transaction, error) {
+	envelope := stored
+	if decoded, err := hex.DecodeString(stored); err == nil {
+		envelope = string(decoded)
+	}
+	return signer.Sign(tx, envelope)
 }
 
 func (s *service) AddTrustline(ctx context.Context, walletID, assetCode, issuer, limit string) (string, error) {

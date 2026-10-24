@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/Lumen-Nexora/Nexora/internal/claimable"
 	"github.com/Lumen-Nexora/Nexora/internal/compliance"
 	"github.com/Lumen-Nexora/Nexora/internal/config"
+	"github.com/Lumen-Nexora/Nexora/internal/crypto"
 	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/Lumen-Nexora/Nexora/internal/fees"
 	"github.com/Lumen-Nexora/Nexora/internal/fiat"
@@ -53,6 +56,30 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/shopspring/decimal"
 )
+
+type travelRuleUSDValuator struct {
+	service fx.Service
+}
+
+func (v travelRuleUSDValuator) USDValue(ctx context.Context, asset string, amount decimal.Decimal) (decimal.Decimal, error) {
+	if amount.Sign() < 0 {
+		return decimal.Zero, errors.New("transfer amount cannot be negative")
+	}
+	if strings.EqualFold(asset, "USDC") {
+		return amount, nil
+	}
+	if v.service == nil {
+		return decimal.Zero, errors.New("FX service is unavailable for USD valuation")
+	}
+	rate, err := v.service.GetRates(ctx, strings.ToUpper(asset), "USDC")
+	if err != nil {
+		return decimal.Zero, err
+	}
+	if rate == nil || rate.Rate.Sign() <= 0 || rate.Stale {
+		return decimal.Zero, errors.New("FX provider returned a non-positive USD conversion rate")
+	}
+	return amount.Mul(rate.Rate), nil
+}
 
 func main() {
 	migrateOnly := flag.Bool("migrate-only", false, "run migrations and exit")
@@ -117,6 +144,7 @@ func main() {
 	}
 	redisClient := redis.NewUniversalClient(redisOpt)
 	defer redisClient.Close()
+	velocityLimiter := compliance.NewRedisVelocityLimiter(redisClient)
 
 	tenantRepo := postgres.NewTenantRepo(repoDB)
 	userRepo := postgres.NewUserRepo(repoDB)
@@ -165,6 +193,14 @@ func main() {
 	stellarClient := stellar.NewClient(cfg.StellarLiveHorizonURL, cfg.StellarLiveNetwork, cfg.StellarHorizonTimeout)
 	testStellarClient := stellar.NewClient(cfg.StellarTestnetHorizonURL, cfg.StellarTestnetNetwork, cfg.StellarHorizonTimeout)
 	clientResolver := stellar.NewModeAwareClients(stellarClient, testStellarClient)
+	// Custodial seeds are sealed under KMS-wrapped data keys when a KMS is
+	// configured (#97). Signers open them only for the moment of signing, and
+	// seeds sealed before the KMS was enabled keep working via the master key.
+	if kms, err := crypto.ConfigureKMS(context.Background(), cfg.KMS()); err != nil {
+		log.Fatal().Err(err).Msg("configure KMS")
+	} else if kms != nil {
+		log.Info().Str("provider", kms.Name()).Dur("rotation_period", cfg.KMSRotationPeriod).Msg("custodial seed envelope encryption enabled")
+	}
 	signer := stellar.NewEnvSigner(cfg.MasterEncryptionKey, cfg.StellarLiveNetwork)
 	testSigner := stellar.NewEnvSigner(cfg.MasterEncryptionKey, cfg.StellarTestnetNetwork)
 	signerResolver := stellar.NewModeAwareSigners(signer, testSigner)
@@ -183,6 +219,8 @@ func main() {
 	orgSvc := org.NewService(repoDB, orgRepo, userRepo, tenantRepo, jwtSecretBytes)
 
 	feeSvc := fees.NewService(feeRepo)
+	networkFeeAccounting := fees.NewNetworkFeeAccounting(feeRepo, fees.NewCoinGeckoHistoricalRateSource())
+	networkFeeRecorder := fees.NewNetworkFeeSettlementRecorder(networkFeeAccounting)
 	walletSvc := wallet.NewServiceWithNetwork(walletRepo, stellarClient, cfg.MasterEncryptionKey, cfg.StellarLiveNetwork, tenantRepo).
 		WithSigner(signer).
 		WithClientResolver(clientResolver).
@@ -200,6 +238,7 @@ func main() {
 		transfer.ConfigureStellarClient(transfer.NewService(txRepo, walletRepo, feeSvc, queueClient, tenantRepo), stellarClient),
 		clientResolver,
 	)
+	transferSvc = transfer.ConfigureVelocityLimiter(transferSvc, velocityLimiter)
 	webhookSvc := webhook.NewService(webhookRepo, redisClient, queueClient, 120, cfg.WebhookAllowPrivateNetworks, cfg.MasterEncryptionKey)
 	if configSvc, ok := webhookSvc.(webhook.ConfigService); ok {
 		if err := configSvc.MigrateLegacySigningSecrets(ctx); err != nil {
@@ -213,6 +252,7 @@ func main() {
 	var complianceHandler *compliance.Handler
 	if cfg.ComplianceEnabled {
 		sanctionsSet := compliance.NewSanctionsSet()
+		sanctionsSet.RequireSources(compliance.SourceOFAC, compliance.SourceUN, compliance.SourceEU)
 
 		// Not fatal, unlike anchorRegistry.Load: screening fails closed, so an
 		// API that boots before the first SDN refresh holds transfers for
@@ -240,7 +280,7 @@ func main() {
 		}
 
 		screener := compliance.NewCompositeScreener(
-			compliance.NewSanctionsScreener(sanctionsSet, cfg.ComplianceFuzzyThreshold),
+			compliance.NewSanctionsScreenerWithSimilarity(sanctionsSet, cfg.ComplianceSimilarityThreshold),
 			velocityScreener,
 		)
 
@@ -267,6 +307,25 @@ func main() {
 		cfg.StellarUSDCIssuer, []fx.Provider{horizonProvider, oracleProvider}, cfg.FXSpreadBps,
 	)
 	walletSvc.WithFXService(fxSvc)
+
+	var travelRuleHandler *compliance.TravelRuleHandler
+	if cfg.TravelRuleEnabled {
+		travelRuleSvc, err := compliance.NewTravelRuleService(
+			postgres.NewTravelRuleRepo(db),
+			travelRuleUSDValuator{service: fxSvc},
+			cfg.TravelRuleVASPDirectoryJSON,
+			cfg.TravelRuleOriginatingVASPID,
+			nil,
+			txRepo,
+			queueClient,
+			cfg.TravelRuleThresholdUSD,
+		)
+		if err != nil {
+			log.Fatal().Err(err).Msg("configure Travel Rule exchange")
+		}
+		transferSvc = transfer.ConfigureTravelRuleGate(transferSvc, travelRuleSvc)
+		travelRuleHandler = compliance.NewTravelRuleHandler(travelRuleSvc)
+	}
 
 	// fiat.Service drives exactly one rail. Flutterwave is the live provider;
 	// the Yellow Card provider is implemented (internal/fiat/yellowcard) but
@@ -300,7 +359,9 @@ func main() {
 			"USDC": cfg.StellarUSDCIssuer,
 			"EURC": cfg.StellarEURCIssuer,
 		}, cfg.PlatformFeeWalletPublicKey,
-	).WithClientResolver(clientResolver).WithSignerResolver(signerResolver)
+	).WithClientResolver(clientResolver).
+		WithSignerResolver(signerResolver).
+		WithSettlementDetailsRecorder(networkFeeRecorder)
 	settlementWorker := settlement.NewWorker(engine)
 
 	idx := indexer.New(walletRepo, txRepo, stellarClient).WithMemoPolicyGate(memoPolicySvc)
@@ -343,11 +404,33 @@ func main() {
 		assets.NewRegistry(cfg.StellarUSDCIssuer, cfg.StellarEURCIssuer),
 		cfg.PlatformFeeWalletPublicKey,
 	).WithDriftThreshold(reconcile.ParseDriftThreshold(cfg.ReconciliationDriftThresholdUSD))
+	if cfg.FraudDetectionEnabled {
+		pagerDuty := alerting.NewPagerDutyClient(alerting.PagerDutyConfig{
+			SecurityRoutingKey:   cfg.PagerDutySecurityRoutingKey,
+			ComplianceRoutingKey: cfg.PagerDutyComplianceRoutingKey,
+			Service:              "nexora-api",
+		})
+		reconcileSvc = reconcileSvc.WithFraudDetector(
+			reconcile.NewFraudDetector(reconcile.FraudConfig{}, nil, pagerDuty),
+		)
+	}
 	reconcileHandler := reconcile.NewHandler(reconcileSvc)
 
 	authHandler := auth.NewHandler(authSvc)
 	orgHandler := org.NewHandler(orgSvc)
-	walletHandler := wallet.NewHandler(walletSvc).WithIdempotency(idemMW).WithMemoPolicyService(memoPolicySvc)
+	simulationRedisOptions := *redisOpt
+	simulationRedisOptions.ContextTimeoutEnabled = true
+	simulationRedisOptions.MaxRetries = -1
+	simulationRedisOptions.DialTimeout = 20 * time.Millisecond
+	simulationRedisOptions.ReadTimeout = 20 * time.Millisecond
+	simulationRedisOptions.WriteTimeout = 20 * time.Millisecond
+	simulationRedis := redis.NewUniversalClient(&simulationRedisOptions)
+	defer simulationRedis.Close()
+	simulationSvc := wallet.NewSimulationService(walletRepo,
+		stellar.NewPreflightClient(cfg.StellarLiveHorizonURL, cfg.StellarHorizonTimeout),
+		stellar.NewPreflightClient(cfg.StellarTestnetHorizonURL, cfg.StellarHorizonTimeout),
+		simulationRedis, cfg.StellarLiveHorizonURL+"|"+cfg.StellarTestnetHorizonURL)
+	walletHandler := wallet.NewHandler(walletSvc).WithIdempotency(idemMW).WithSimulation(simulationSvc).WithMemoPolicyService(memoPolicySvc)
 	memoPolicyHandler := wallet.NewMemoPolicyHandler(memoPolicySvc)
 
 	// Contract wallets are opt-in: without an installed WASM hash the API keeps
@@ -373,6 +456,20 @@ func main() {
 		walletHandler = walletHandler.WithContractService(contractSvc).
 			WithGuardianGate(server.RequireRole(domain.RoleOwner, domain.RoleAdmin))
 	}
+	auditRepo := postgres.NewAuditRepo(repoDB)
+	auditSvc := audit.NewService(auditRepo, txRepo)
+	// Destructive custodial account closure (#96). Every closure route is
+	// Owner/Admin only and writes a permanent compliance audit trail.
+	accountCloser := wallet.NewCloser(walletRepo, wallet.NewClosureRepository(repoDB), stellarClient, signer, auditSvc).
+		WithClientResolver(clientResolver).
+		WithSignerResolver(signerResolver)
+	walletHandler = walletHandler.WithCloser(accountCloser, server.RequireRole(domain.RoleOwner, domain.RoleAdmin))
+	// Multi-wallet consolidation (#95): priced here, executed by the worker.
+	consolidator := wallet.NewConsolidator(walletRepo, wallet.NewConsolidationRepository(repoDB), wallet.NewClosureRepository(repoDB),
+		stellarClient, signer, auditSvc, queueClient).
+		WithClientResolver(clientResolver).
+		WithSignerResolver(signerResolver)
+	walletHandler = walletHandler.WithConsolidator(consolidator, server.RequireRole(domain.RoleOwner, domain.RoleAdmin))
 	reconcileHandler = reconcileHandler.WithAuditLogger(auditSvc)
 	auditHandler := audit.NewHandler(auditSvc)
 	usageHandler := server.NewUsageHandler(repoDB)
@@ -394,7 +491,7 @@ func main() {
 	refundHandler := refund.NewHandler(refundSvc).WithIdempotency(idemMW).WithAuditLogger(auditSvc)
 	anchorFiatHandler := fiat.NewAnchorHandler(anchorFiatSvc)
 	anchorHandler := anchor.NewHandler(anchorRegistry)
-	feeHandler := fees.NewHandler(feeSvc)
+	feeHandler := fees.NewHandler(feeSvc).WithAccounting(networkFeeAccounting)
 	apikeyHandler := apikey.NewHandler(apiKeyRepo).WithAuditLogger(auditSvc)
 	webhookHandler := webhook.NewHandler(webhookSvc).
 		WithIdempotency(idempotency.MiddlewareWithOptions(idempotencyRepo, idempotency.Options{
@@ -451,6 +548,37 @@ func main() {
 		WithMutationGate(server.RequireRole(domain.RoleOwner, domain.RoleAdmin))
 	idempotencyHandler := idempotency.NewHandler(idempotencyRepo)
 
+	var geoOptions server.GeoScreenOptions
+	if cfg.GeoScreenEnabled {
+		resolver, err := compliance.OpenMaxMindResolver(cfg.GeoIPDatabasePath)
+		if err != nil {
+			log.Fatal().Err(err).Msg("open MaxMind GeoIP database")
+		}
+		defer resolver.Close()
+
+		blockedCountries := compliance.DefaultBlockedCountries()
+		if raw := strings.TrimSpace(cfg.GeoBlockedCountries); raw != "" {
+			blockedCountries = nil
+			for _, code := range strings.Split(raw, ",") {
+				if code = strings.TrimSpace(code); code != "" {
+					blockedCountries = append(blockedCountries, code)
+				}
+			}
+		}
+		geoOptions = server.GeoScreenOptions{
+			Screener: compliance.NewGeoScreener(resolver, compliance.GeoScreenConfig{
+				BlockedCountries: blockedCountries,
+				BlockVPN:         cfg.GeoBlockVPN,
+				BlockTor:         cfg.GeoBlockTor,
+				BlockHosting:     cfg.GeoBlockHosting,
+				BlockProxy:       cfg.GeoBlockProxy,
+				AllowPrivateIPs:  true,
+				FailClosed:       cfg.GeoFailClosed,
+			}),
+			Audit: auditSvc,
+		}
+	}
+
 	srv := server.New(
 		authHandler, orgHandler, walletHandler, transferHandler, fxHandler, fiatHandler,
 		anchorFiatHandler, anchorHandler,
@@ -476,6 +604,8 @@ func main() {
 		tenantDataHandler,
 		memoPolicyHandler,
 		server.AuditScopeDenials(auditSvc),
+		geoOptions,
+		travelRuleHandler,
 	)
 	server.RegisterDocsRoutes(srv.Router())
 

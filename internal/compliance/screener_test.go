@@ -3,7 +3,9 @@ package compliance
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Lumen-Nexora/Nexora/internal/domain"
 )
@@ -138,5 +140,26 @@ func TestScreeningStatusSeverityOrdering(t *testing.T) {
 	var zero domain.ScreeningStatus
 	if zero.Severity() != domain.ScreeningClear.Severity() {
 		t.Fatal("zero-value severity should sort with clear, and callers must check explicitly")
+	}
+}
+
+func TestCompositePreservesSanctionsMatchRationale(t *testing.T) {
+	set := NewSanctionsSet()
+	set.Replace([]*domain.SanctionsEntity{
+		{UID: "eu_fsf:999", Source: SourceEU, Name: "EXAMPLE SHIPPING LLC"},
+	}, time.Now())
+	composite := NewCompositeScreener(
+		NewSanctionsScreenerWithSimilarity(set, .85),
+		clearStub("other"),
+	)
+	got, err := composite.Screen(context.Background(), domain.ScreeningRequest{
+		ToFederation: "EXAMPLE SHIPPING LLC",
+	})
+	if err != nil || got.Status != domain.ScreeningHold ||
+		got.MatchedEntityID != "eu_fsf:999" ||
+		got.MatchedSource != SourceEU ||
+		got.MatchScore != 1 ||
+		!strings.Contains(got.Reason, "entity_id=eu_fsf:999") {
+		t.Fatalf("lost match rationale through CompositeScreener: %+v (%v)", got, err)
 	}
 }

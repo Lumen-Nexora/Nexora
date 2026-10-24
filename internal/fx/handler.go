@@ -2,6 +2,7 @@ package fx
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/Lumen-Nexora/Nexora/internal/api"
@@ -118,6 +119,20 @@ func (h *Handler) convert(w http.ResponseWriter, r *http.Request) {
 
 	conv, err := h.svc.ExecuteConversion(r.Context(), req.WalletID, req.QuoteID, minAmtOut, req.MaxSlippageBps)
 	if err != nil {
+		var slippageErr *SlippageExceededError
+		if errors.As(err, &slippageErr) {
+			api.ErrorWithDetails(w, http.StatusBadRequest, "SLIPPAGE_EXCEEDED", err.Error(), slippageErr.Calculation)
+			return
+		}
+		if errors.Is(err, ErrInsufficientLiquidityDepth) || errors.Is(err, ErrEmptyOrderbook) {
+			api.Error(w, http.StatusUnprocessableEntity, "INSUFFICIENT_LIQUIDITY", err.Error())
+			return
+		}
+		if errors.Is(err, ErrDepthUnavailable) {
+			api.Error(w, http.StatusServiceUnavailable, "DEPTH_UNAVAILABLE", err.Error())
+			return
+		}
+
 		api.HandleDomainError(w, err)
 		return
 	}

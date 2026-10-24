@@ -1,14 +1,20 @@
 package stellar
 
 import (
+	"context"
+	"crypto/ed25519"
+	"encoding/base32"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/Lumen-Nexora/Nexora/internal/crypto"
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/txnbuild"
+	"github.com/stellar/go/xdr"
 )
 
 var (
@@ -58,23 +64,81 @@ func ResolveNetworkPassphrase(stellarNetwork string) string {
 	}
 }
 
+// Sign opens the wallet's sealed secret only for the moment it takes to sign
+// (see SignWithSealedSecret). v2 envelopes are unwrapped through the
+// configured KMS; v1 and legacy envelopes are decrypted with the master key.
 func (s *EnvSigner) Sign(tx *txnbuild.Transaction, encryptedSecret string) (*txnbuild.Transaction, error) {
-	secretBytes, err := crypto.Decrypt([]byte(encryptedSecret), s.masterKey)
-	if err != nil {
-		return nil, fmt.Errorf("decrypt secret: %w", err)
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), signTimeout)
+	defer cancel()
+	return SignWithSealedSecret(ctx, tx, s.networkPassphrase, []byte(encryptedSecret), s.masterKey)
+}
 
-	kp, err := keypair.ParseFull(string(secretBytes))
-	if err != nil {
-		return nil, fmt.Errorf("parse keypair: %w", err)
-	}
+// signTimeout bounds the KMS round trip behind one signature.
+const signTimeout = 15 * time.Second
 
-	signed, err := tx.Sign(s.networkPassphrase, kp)
-	if err != nil {
-		return nil, fmt.Errorf("sign transaction: %w", err)
-	}
+// seedVersionByte is the strkey version byte of an ed25519 secret seed ("S...").
+const seedVersionByte = 18 << 3
 
+// SignWithSealedSecret signs tx with the Stellar secret seed sealed in
+// envelope. The seed is decrypted into an ephemeral buffer, decoded into a
+// raw ed25519 seed and private key, used for exactly one signature, and every
+// one of those buffers is zeroized before this returns, so the seed never
+// lingers as an immutable string (as keypair.Full would keep it).
+func SignWithSealedSecret(ctx context.Context, tx *txnbuild.Transaction, networkPassphrase string, envelope, legacyKey []byte) (*txnbuild.Transaction, error) {
+	hash, err := tx.Hash(networkPassphrase)
+	if err != nil {
+		return nil, fmt.Errorf("hash transaction: %w", err)
+	}
+	var sig xdr.DecoratedSignature
+	err = crypto.OpenSecret(ctx, envelope, legacyKey, func(encodedSeed []byte) error {
+		var signErr error
+		sig, signErr = signHashWithSeed(hash[:], encodedSeed)
+		return signErr
+	})
+	if err != nil {
+		return nil, fmt.Errorf("sign with sealed secret: %w", err)
+	}
+	signed, err := tx.AddSignatureDecorated(sig)
+	if err != nil {
+		return nil, fmt.Errorf("attach signature: %w", err)
+	}
 	return signed, nil
+}
+
+// signHashWithSeed decodes a strkey secret seed held in a byte slice and signs
+// hash with it, zeroizing the decoded seed and private key afterwards.
+func signHashWithSeed(hash, encodedSeed []byte) (xdr.DecoratedSignature, error) {
+	raw := make([]byte, base32.StdEncoding.DecodedLen(len(encodedSeed)))
+	defer crypto.Zeroize(raw)
+	n, err := base32.StdEncoding.Decode(raw, encodedSeed)
+	if err != nil || n != 35 || raw[0] != seedVersionByte {
+		return xdr.DecoratedSignature{}, errors.New("invalid secret seed")
+	}
+	if crc16XModem(raw[:33]) != binary.LittleEndian.Uint16(raw[33:35]) {
+		return xdr.DecoratedSignature{}, errors.New("invalid secret seed checksum")
+	}
+
+	private := ed25519.NewKeyFromSeed(raw[1:33])
+	defer crypto.Zeroize(private)
+	var hint [4]byte
+	copy(hint[:], private[ed25519.PrivateKeySize-4:]) // last 4 bytes of the public key
+	return xdr.NewDecoratedSignature(ed25519.Sign(private, hash), hint), nil
+}
+
+// crc16XModem is the strkey checksum (CRC-16/XMODEM).
+func crc16XModem(data []byte) uint16 {
+	var crc uint16
+	for _, b := range data {
+		crc ^= uint16(b) << 8
+		for i := 0; i < 8; i++ {
+			if crc&0x8000 != 0 {
+				crc = crc<<1 ^ 0x1021
+			} else {
+				crc <<= 1
+			}
+		}
+	}
+	return crc
 }
 
 // VerifyTransactionSignatures cryptographically verifies every decorated signature on tx
@@ -153,4 +217,3 @@ func VerifyTransactionSignatures(tx *txnbuild.Transaction, networkPassphrase str
 
 	return verifiedSigners, nil
 }
-

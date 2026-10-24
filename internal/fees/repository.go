@@ -15,6 +15,13 @@ type Repository interface {
 	ListCollected(ctx context.Context, start, end *time.Time, tenantID *string, limit, offset int) ([]*domain.FeeCollection, error)
 	GetMonthlyVolume(ctx context.Context, tenantID string) (decimal.Decimal, error)
 	GetApplicableTier(ctx context.Context, tenantID string, volume decimal.Decimal) *domain.FeeTier
+
+	// RecordNetworkFee persists one exact on-chain fee. It is idempotent on
+	// tx_hash: replaying the same Horizon result never allocates the cost twice.
+	RecordNetworkFee(ctx context.Context, charge *domain.NetworkFeeCharge) error
+	GetNetworkFeeByTxHash(ctx context.Context, txHash string) (*domain.NetworkFeeCharge, error)
+	GetNetworkFeeUsage(ctx context.Context, tenantID string, start, end time.Time) (*domain.NetworkFeeUsage, error)
+	GetMonthlyNetworkFeeCOGS(ctx context.Context, start, end time.Time) (*domain.NetworkFeeCOGSReport, error)
 }
 
 type TransferFee struct {

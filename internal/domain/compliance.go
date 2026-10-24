@@ -35,6 +35,9 @@ func (s ScreeningStatus) Severity() int {
 // importing internal/compliance.
 type ScreeningRequest struct {
 	OrgID         string
+	TransferID    string
+	AccountType   AccountType
+	RiskCategory  RiskCategory
 	FromWalletID  string
 	ToWalletID    string
 	FromPublicKey string
@@ -42,8 +45,11 @@ type ScreeningRequest struct {
 	// ToFederation is the destination's federation / display name, used for
 	// fuzzy name matching against the SDN list. Empty when unknown.
 	ToFederation string
-	Asset        string
-	Amount       decimal.Decimal
+	// Optional known legal names of the sender and recipient.
+	FromName string
+	ToName   string
+	Asset    string
+	Amount   decimal.Decimal
 }
 
 // ScreeningDecision is the result of screening, including the audit-trail row
@@ -56,6 +62,10 @@ type ScreeningDecision struct {
 	RiskScore  int
 	// MatchedEntity is the sanctions entity name on a sanctions match.
 	MatchedEntity string
+	// ID/source/score identify and explain a name match for manual review.
+	MatchedEntityID string
+	MatchedSource   string
+	MatchScore      float64
 	// BlockID is set only when Status is blocked, referencing the
 	// compliance_blocks row already persisted.
 	BlockID string

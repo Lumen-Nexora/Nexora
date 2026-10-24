@@ -15,32 +15,16 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-const (
-	// Platform allowable margin ceilings (basis points)
-	// -500 bps = -5.00% max allowable discount
-	// 5000 bps = +50.00% max allowable markup
-	MinAllowableMarginBps = -500
-	MaxAllowableMarginBps = 5000
-)
-
-// TenantFXRepo handles persistence, retrieval, tier resolution, and audit tracking
-// for multi-tenant custom FX markups.
-type TenantFXRepo interface {
-	CreateMargin(ctx context.Context, m *domain.TenantFXMargin, actorPrincipal, actorIP string) error
-	GetMargin(ctx context.Context, id, tenantID string) (*domain.TenantFXMargin, error)
-	FindMargin(ctx context.Context, tenantID, fromAsset, toAsset string, amount decimal.Decimal) (*domain.TenantFXMargin, error)
-	ListMargins(ctx context.Context, tenantID, fromAsset, toAsset string, limit, offset int) ([]*domain.TenantFXMargin, int, error)
-	UpdateMargin(ctx context.Context, m *domain.TenantFXMargin, actorPrincipal, actorIP string) error
-	DeleteMargin(ctx context.Context, id, tenantID, actorPrincipal, actorIP string) error
-	ListMarginAudits(ctx context.Context, tenantID, marginID string, limit, offset int) ([]*domain.TenantFXMarginAudit, error)
-}
+// TenantFXRepo and the platform-allowable margin ceilings now live in
+// internal/domain so the fx service can depend on them without importing
+// this package. NewTenantFXRepo below satisfies domain.TenantFXRepo.
 
 type tenantFXRepo struct {
 	db DB
 }
 
 // NewTenantFXRepo constructs a PostgreSQL-backed repository for tenant FX margin policies.
-func NewTenantFXRepo(db DB) TenantFXRepo {
+func NewTenantFXRepo(db DB) domain.TenantFXRepo {
 	return &tenantFXRepo{db: db}
 }
 
@@ -66,9 +50,9 @@ func validateCorridorAndCeilings(m *domain.TenantFXMargin) error {
 	// Default ceilings if unspecified
 	if m.MinMarginBps == 0 && m.MaxMarginBps == 0 {
 		m.MinMarginBps = 0
-		m.MaxMarginBps = MaxAllowableMarginBps
+		m.MaxMarginBps = domain.MaxAllowableMarginBps
 	}
-	if m.MinMarginBps < MinAllowableMarginBps || m.MaxMarginBps > MaxAllowableMarginBps || m.MinMarginBps > m.MaxMarginBps {
+	if m.MinMarginBps < domain.MinAllowableMarginBps || m.MaxMarginBps > domain.MaxAllowableMarginBps || m.MinMarginBps > m.MaxMarginBps {
 		return domain.ErrMarginCeilingExceeded
 	}
 	if m.MarkupBps < m.MinMarginBps || m.MarkupBps > m.MaxMarginBps {

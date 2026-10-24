@@ -68,6 +68,9 @@ func (c *CompositeScreener) Screen(ctx context.Context, req domain.ScreeningRequ
 			out.Status = res.Status
 			out.Reason = res.Reason
 			out.MatchedEntity = res.MatchedEntity
+			out.MatchedEntityID = res.MatchedEntityID
+			out.MatchedSource = res.MatchedSource
+			out.MatchScore = res.MatchScore
 		}
 	}
 

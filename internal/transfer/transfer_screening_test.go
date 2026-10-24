@@ -366,3 +366,95 @@ func TestSelfTransferIsRejectedBeforeScreening(t *testing.T) {
 		t.Fatal("a self-transfer should not reach the screener")
 	}
 }
+
+type velocityLimiterStub struct {
+	request      domain.ScreeningRequest
+	reserveErr   error
+	reserveCalls int
+	finalized    []string
+	rolledBack   []string
+}
+
+func (m *velocityLimiterStub) Reserve(_ context.Context, req domain.ScreeningRequest) error {
+	m.request = req
+	m.reserveCalls++
+	return m.reserveErr
+}
+
+func (m *velocityLimiterStub) Finalize(_ context.Context, _, _, transferID string) error {
+	m.finalized = append(m.finalized, transferID)
+	return nil
+}
+
+func (m *velocityLimiterStub) Rollback(_ context.Context, _, _, transferID string) error {
+	m.rolledBack = append(m.rolledBack, transferID)
+	return nil
+}
+
+type failingVelocityCreateRepo struct {
+	*screeningMockTxRepo
+	createErr error
+}
+
+func (m *failingVelocityCreateRepo) Create(_ context.Context, _ *domain.Transaction) error {
+	return m.createErr
+}
+
+func TestTransferReservesVelocityWithStableTenantProfile(t *testing.T) {
+	txRepo := &screeningMockTxRepo{}
+	screener := &screeningMockScreener{decision: decisionOf(domain.ScreeningClear)}
+	limiter := &velocityLimiterStub{}
+	tenantRepo := &limitMockTenantRepo{tenant: &domain.Tenant{
+		ID:           "tenant-velocity",
+		AccountType:  domain.AccountTypeOrganization,
+		RiskCategory: domain.RiskCategoryLow,
+	}}
+	svc := NewService(txRepo, &limitMockWalletRepo{}, &limitMockFeeSvc{}, nil, tenantRepo)
+	svc = ConfigureScreener(svc, screener)
+	svc = ConfigureVelocityLimiter(svc, limiter)
+
+	ctx := tenant.WithID(context.Background(), "tenant-velocity")
+	tx, err := svc.InitiateTransfer(ctx, "wallet-a", "wallet-b", "USDC", decimal.NewFromInt(25))
+	if err != nil {
+		t.Fatalf("InitiateTransfer: %v", err)
+	}
+	if limiter.reserveCalls != 1 {
+		t.Fatalf("reservation calls = %d, want 1", limiter.reserveCalls)
+	}
+	if limiter.request.OrgID != "tenant-velocity" || limiter.request.TransferID != tx.ID ||
+		limiter.request.AccountType != domain.AccountTypeOrganization ||
+		limiter.request.RiskCategory != domain.RiskCategoryLow ||
+		limiter.request.Asset != "USDC" || !limiter.request.Amount.Equal(decimal.NewFromInt(25)) {
+		t.Fatalf("reservation request does not match the persisted transfer/profile: %+v", limiter.request)
+	}
+	if len(screener.screened) != 1 || screener.screened[0].TransferID != tx.ID ||
+		screener.screened[0].AccountType != domain.AccountTypeOrganization ||
+		screener.screened[0].RiskCategory != domain.RiskCategoryLow {
+		t.Fatalf("screening did not receive the stable transfer/profile: %+v", screener.screened)
+	}
+	if len(limiter.rolledBack) != 0 {
+		t.Fatalf("successful pending transfer rolled back its reservation: %v", limiter.rolledBack)
+	}
+}
+
+func TestTransferRollsBackVelocityWhenPersistenceFails(t *testing.T) {
+	createErr := errors.New("database rejected transaction")
+	txRepo := &failingVelocityCreateRepo{screeningMockTxRepo: &screeningMockTxRepo{}, createErr: createErr}
+	limiter := &velocityLimiterStub{}
+	tenantRepo := &limitMockTenantRepo{tenant: &domain.Tenant{
+		ID:           "tenant-velocity",
+		AccountType:  domain.AccountTypeIndividual,
+		RiskCategory: domain.RiskCategoryMedium,
+	}}
+	svc := NewService(txRepo, &limitMockWalletRepo{}, &limitMockFeeSvc{}, nil, tenantRepo)
+	svc = ConfigureVelocityLimiter(svc, limiter)
+
+	ctx := tenant.WithID(context.Background(), "tenant-velocity")
+	if _, err := svc.InitiateTransfer(ctx, "wallet-a", "wallet-b", "USDC", decimal.NewFromInt(25)); !errors.Is(err, createErr) {
+		t.Fatalf("InitiateTransfer error = %v, want %v", err, createErr)
+	}
+	if limiter.reserveCalls != 1 || len(limiter.rolledBack) != 1 ||
+		limiter.rolledBack[0] != limiter.request.TransferID {
+		t.Fatalf("reservation was not rolled back after create failure: %+v", limiter)
+	}
+}

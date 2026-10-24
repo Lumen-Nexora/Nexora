@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/Lumen-Nexora/Nexora/internal/domain"
-	"github.com/Lumen-Nexora/Nexora/internal/postgres"
 	"github.com/go-chi/chi/v5"
 	"github.com/shopspring/decimal"
 )
@@ -30,7 +29,7 @@ func newMockTenantFXRepo() *mockTenantFXRepo {
 
 func (m *mockTenantFXRepo) CreateMargin(_ context.Context, margin *domain.TenantFXMargin, actorPrincipal, actorIP string) error {
 	if margin.MarkupBps < margin.MinMarginBps || margin.MarkupBps > margin.MaxMarginBps ||
-		margin.MarkupBps < postgres.MinAllowableMarginBps || margin.MarkupBps > postgres.MaxAllowableMarginBps {
+		margin.MarkupBps < domain.MinAllowableMarginBps || margin.MarkupBps > domain.MaxAllowableMarginBps {
 		return domain.ErrMarginCeilingExceeded
 	}
 	if margin.FromAsset == margin.ToAsset {
@@ -118,7 +117,7 @@ func (m *mockTenantFXRepo) ListMargins(_ context.Context, tenantID, fromAsset, t
 
 func (m *mockTenantFXRepo) UpdateMargin(_ context.Context, margin *domain.TenantFXMargin, actorPrincipal, actorIP string) error {
 	if margin.MarkupBps < margin.MinMarginBps || margin.MarkupBps > margin.MaxMarginBps ||
-		margin.MarkupBps < postgres.MinAllowableMarginBps || margin.MarkupBps > postgres.MaxAllowableMarginBps {
+		margin.MarkupBps < domain.MinAllowableMarginBps || margin.MarkupBps > domain.MaxAllowableMarginBps {
 		return domain.ErrMarginCeilingExceeded
 	}
 	for i, existing := range m.margins {

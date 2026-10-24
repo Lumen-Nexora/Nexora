@@ -16,10 +16,15 @@ import (
 
 type Handler struct {
 	svc          Service
+	simulation   SimulationService
 	contractSvc  ContractService
 	memoSvc      *MemoPolicyService
 	idem         func(http.Handler) http.Handler
 	guardianGate func(http.Handler) http.Handler
+	closer       *Closer
+	closureGate  func(http.Handler) http.Handler
+	consolidator *Consolidator
+	consolidGate func(http.Handler) http.Handler
 }
 
 func NewHandler(svc Service) *Handler {
@@ -60,6 +65,50 @@ func (h *Handler) WithGuardianGate(mw func(http.Handler) http.Handler) *Handler 
 	return h
 }
 
+func (h *Handler) WithSimulation(simulation SimulationService) *Handler {
+	h.simulation = simulation
+	return h
+}
+
+func (h *Handler) simulate(w http.ResponseWriter, r *http.Request) {
+	var req SimulationRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		api.BadRequest(w, "invalid simulation request")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		api.BadRequest(w, "expected one request object")
+		return
+	}
+	result, err := h.simulation.Simulate(r.Context(), chi.URLParam(r, "id"), req)
+	if err != nil {
+		api.HandleDomainError(w, err)
+		return
+	}
+	api.JSON(w, http.StatusOK, result)
+}
+
+// WithCloser enables the destructive account closure and custody settings
+// endpoints. gate (e.g. an Owner/Admin role check) wraps every one of them,
+// including the reads, because the settings name the tenant's treasury
+// accounts.
+func (h *Handler) WithCloser(closer *Closer, gate func(http.Handler) http.Handler) *Handler {
+	h.closer = closer
+	h.closureGate = gate
+	return h
+}
+
+// WithConsolidator enables the multi-wallet consolidation endpoints behind
+// gate (e.g. an Owner/Admin role check), since they move funds between the
+// tenant's wallets and can close accounts.
+func (h *Handler) WithConsolidator(c *Consolidator, gate func(http.Handler) http.Handler) *Handler {
+	h.consolidator = c
+	h.consolidGate = gate
+	return h
+}
+
 func (h *Handler) Routes() func(r chi.Router) {
 	return func(r chi.Router) {
 		post := r.Post
@@ -71,6 +120,35 @@ func (h *Handler) Routes() func(r chi.Router) {
 		r.Get("/{id}", h.getWallet)
 		r.Get("/{id}/balances", h.getBalances)
 		post("/{id}/trustlines", h.addTrustline)
+		if h.simulation != nil {
+			r.Post("/{id}/simulate", h.simulate)
+		}
+
+		if h.closer != nil {
+			gated := r.With()
+			if h.closureGate != nil {
+				gated = r.With(h.closureGate)
+			}
+			closePost := gated.Post
+			if h.idem != nil {
+				closePost = gated.With(h.idem).Post
+			}
+			closePost("/{id}/close", h.closeWallet)
+			gated.Get("/closures", h.listClosures)
+			gated.Get("/closures/{closureId}", h.getClosure)
+			gated.Get("/custody-settings", h.getCustodySettings)
+			gated.Put("/custody-settings", h.putCustodySettings)
+		}
+
+		if h.consolidator != nil {
+			gated := r.With()
+			if h.consolidGate != nil {
+				gated = r.With(h.consolidGate)
+			}
+			gated.Post("/consolidations", h.createConsolidation)
+			gated.Get("/consolidations", h.listConsolidations)
+			gated.Get("/consolidations/{consolidationId}", h.getConsolidation)
+		}
 
 		if h.memoSvc != nil {
 			r.Get("/{id}/memo-policy", h.getMemoPolicy)
@@ -115,18 +193,7 @@ type setTimeLockRequest struct {
 }
 
 func (h *Handler) listWallets(w http.ResponseWriter, r *http.Request) {
-	limit := 50
-	if value := r.URL.Query().Get("limit"); value != "" {
-		if parsed, err := strconv.Atoi(value); err == nil && parsed > 0 && parsed <= 100 {
-			limit = parsed
-		}
-	}
-	offset := 0
-	if value := r.URL.Query().Get("offset"); value != "" {
-		if parsed, err := strconv.Atoi(value); err == nil && parsed >= 0 {
-			offset = parsed
-		}
-	}
+	limit, offset := pageParams(r)
 	wallets, err := h.svc.ListWallets(r.Context(), limit, offset)
 	if err != nil {
 		api.InternalError(w, err)

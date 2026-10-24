@@ -9,7 +9,7 @@ info:
     batch disbursements, fiat on/off-ramps, and a developer-friendly webhook system.
 
 
-    All endpoints under `/v1` require a Bearer API key in the `Authorization` header.
+    All endpoints under `/v1` require a Bearer API key in the `Authorization` header, except `/v1/travel-rule/confirmations`, which is authenticated by a trusted VASP signature.
 
 
     ## API key scopes
@@ -609,6 +609,87 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /v1/wallets/{id}/simulate:
+    post:
+      operationId: simulateWalletPayment
+      summary: Predict a custodial classic payment before signing
+      description: >-
+        Read-only local validation using Horizon account, latest ledger and fee
+        statistics reads. Horizon has no classic-payment dry-run endpoint.
+        Never signs or broadcasts. Supports one native or explicitly issued
+        credit-asset payment, not contract invocations or arbitrary operations.
+        Checks reserve sponsorship, selling/buying liabilities, trustline
+        authorization/capacity and optional sequence. Redis snapshots expire
+        after two seconds and are isolated by network. Warm-cache latency targets
+        100ms; upstream misses are bounded by the configured Horizon timeout.
+        Success is a prediction, not network execution or signature validation.
+        Reload balances and sequence before signing; concurrent transactions and
+        changing fees can invalidate it. No sequence reservation is made.
+      tags: [Wallets]
+      parameters:
+      - $ref: '#/components/parameters/WalletID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [destination, amount]
+              properties:
+                destination:
+                  type: string
+                  description: Existing Stellar G-address
+                asset:
+                  type: string
+                  default: XLM
+                issuer:
+                  type: string
+                  description: Required for credit assets; omitted for XLM
+                amount:
+                  type: string
+                  description: Positive amount with at most seven fractional digits
+                sequence:
+                  type: string
+                  description: Optional proposed transaction sequence; must equal source sequence plus one
+      responses:
+        '200':
+          description: Prediction (including unsuccessful validation)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, code, estimated_fee_stroops, sequence, ledger, cached, state_cache_ttl_ms, warning]
+                properties:
+                  success:
+                    type: boolean
+                  code:
+                    type: string
+                    description: ok or a failed reserve, balance, account, sequence or trustline check
+                  estimated_fee_stroops:
+                    type: string
+                    description: One-operation fee estimate; maximum of ledger base fee and p95 charged fee
+                  sequence:
+                    type: string
+                    description: Next sequence, empty when source account is missing
+                  ledger:
+                    type: integer
+                  cached:
+                    type: boolean
+                    description: All network/source/destination snapshots were cache hits
+                  state_cache_ttl_ms:
+                    type: integer
+                    description: Configured cache TTL, not a guarantee of ledger freshness
+                  warning:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /v1/wallets/{id}/trustlines:
     post:
       operationId: createTrustline
@@ -1029,6 +1110,63 @@ paths:
           $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /v1/travel-rule/confirmations:
+    post:
+      operationId: receiveTravelRuleConfirmation
+      summary: Receive signed Travel Rule confirmation
+      description: Accepts a recipient VASP confirmation only after its configured Ed25519 signature is verified.
+      tags:
+      - Compliance
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - confirmation_id
+              - message_id
+              - transfer_id
+              - vasp_id
+              - status
+              - envelope_sha256
+              - issued_at
+              - signature
+              properties:
+                confirmation_id:
+                  type: string
+                message_id:
+                  type: string
+                  format: uuid
+                transfer_id:
+                  type: string
+                  format: uuid
+                vasp_id:
+                  type: string
+                status:
+                  type: string
+                  enum:
+                  - confirmed
+                  - rejected
+                envelope_sha256:
+                  type: string
+                  pattern: '^[a-f0-9]{64}$'
+                issued_at:
+                  type: string
+                  format: date-time
+                signature:
+                  type: string
+                  description: Base64url Ed25519 signature over the canonical confirmation fields.
+      responses:
+        '202':
+          description: Signed confirmation accepted
+        '400':
+          description: Malformed confirmation
+        '401':
+          description: Signature, timestamp, VASP, or message binding failed verification
+        '500':
+          description: Confirmation could not be persisted or applied
   /v1/transfers:
     post:
       operationId: initiateTransfer
@@ -1389,7 +1527,7 @@ paths:
     post:
       operationId: executeConversion
       summary: Execute a conversion
-      description: Executes a previously quoted FX conversion. The quote must not be expired or already used.
+      description: Executes a previously quoted FX conversion. The quote must not be expired or already used. Current executable orderbook depth is checked before consuming the quote or rate lock. Excess impact returns SLIPPAGE_EXCEEDED with the calculation in error.details; insufficient liquidity returns INSUFFICIENT_LIQUIDITY.
       tags:
       - FX
       requestBody:
@@ -1425,7 +1563,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '422':
-          description: Quote expired or already used
+          description: Quote expired, already used, or insufficient executable liquidity
           content:
             application/json:
               schema:
@@ -1436,6 +1574,12 @@ paths:
                   message: quote expired
                   status: 422
                   request_id: req-example
+        '503':
+          description: Current orderbook depth unavailable; conversion was not executed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           $ref: '#/components/responses/InternalServerError'
   /v1/fx/rates:
@@ -2584,6 +2728,56 @@ paths:
         '409': {$ref: '#/components/responses/Conflict'}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '500': {$ref: '#/components/responses/InternalServerError'}
+  /v1/admin/reconciliation/three-way:
+    post:
+      operationId: generateThreeWayReconciliation
+      summary: Reconcile a daily bank report with internal transfers and Horizon
+      description: |
+        Owner/admin only. Upload a normalized provider CSV with columns
+        reference,amount,currency,status,settled_at. Amounts are positive decimal
+        strings (up to 20 integer and 7 fractional digits), currencies are three
+        uppercase letters, status is settled/pending/failed, and settled_at is
+        RFC3339 within the requested UTC day. Maximum 4 MiB and 10000 rows.
+        Returns an XLSX workbook with Summary, All transfers, and Exceptions.
+        Reads the authenticated tenant and mode from the primary database and
+        selects that mode's Horizon client. Compares the day's created fiat
+        transfers plus older transfers referenced in the report. This is not a
+        scan of all Stellar activity; missing internal references have unknown
+        chain status. Horizon evidence is current at run time, not historical
+        as-of-day evidence. Provider-specific reports must first be normalized;
+        callers can schedule this endpoint after receiving a complete daily report.
+        No balances/statuses are changed. Network errors abort without a workbook.
+        Workbook references/amounts are text cells, never executable formulas.
+      tags: [Admin]
+      security:
+      - AdminAuth: []
+      parameters:
+      - name: date
+        in: query
+        required: true
+        schema: {type: string, format: date}
+      - name: provider
+        in: query
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 64}
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema: {type: string}
+            example: "reference,amount,currency,status,settled_at\nbank-123,100.01,NGN,settled,2026-10-22T10:00:00Z\n"
+      responses:
+        '200':
+          description: Audit workbook; exceptions include resolution recommendations
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: {type: string, format: binary}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {$ref: '#/components/responses/InternalServerError'}
+        '503':
+          description: Reconciliation service is not configured
   /v1/admin/reconciliation/summary:
     get:
       operationId: getReconciliationSummary
@@ -3324,9 +3518,19 @@ components:
               - INSUFFICIENT_SWEEPABLE_BALANCE
               - QUOTE_EXPIRED
               - QUOTE_ALREADY_USED
+              - SLIPPAGE_EXCEEDED
+              - INSUFFICIENT_LIQUIDITY
+              - DEPTH_UNAVAILABLE
               - REVIEW_ALREADY_DECIDED
               - CLAIMABLE_BALANCE_NOT_PENDING
               - REQUEST_IN_PROGRESS
+              - CLOSURE_OUTSTANDING_BALANCE
+              - CLOSURE_PENDING_TRANSFERS
+              - CLOSURE_PROTECTED_ACCOUNT
+              - CLOSURE_UNSUPPORTED_ACCOUNT
+              - CLOSURE_ALREADY_EXISTS
+              - CONSOLIDATION_NOTHING_TO_MOVE
+              - CONSOLIDATION_DESTINATION_UNFUNDED
               description: Machine-readable error code
             message:
               type: string
@@ -3339,6 +3543,310 @@ components:
             request_id:
               type: string
               description: Effective X-Request-ID response header value
+            details:
+              type: object
+              additionalProperties: true
+              description: For SLIPPAGE_EXCEEDED, contains trade_size, top_price, effective_price, price_impact_pct, price_impact_bps, tolerance_pct, tolerance_bps, tier, and allowed. Decimal values are strings.
+    CloseWalletRequest:
+      type: object
+      required:
+      - justification
+      - confirm
+      properties:
+        justification:
+          type: string
+          minLength: 10
+          description: Why the account is being destroyed; stored in the permanent audit log
+        confirm:
+          type: string
+          description: Must equal the wallet's public key
+    AccountClosure:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+        mode:
+          type: string
+          enum:
+          - live
+          - test
+        wallet_id:
+          type: string
+        destination_wallet:
+          type: string
+          nullable: true
+        destination_address:
+          type: string
+          description: Tenant master address that received the merged XLM
+        actor_type:
+          type: string
+        actor_id:
+          type: string
+          description: Authenticated operator that performed the closure
+        justification:
+          type: string
+        removed_trustlines:
+          type: array
+          items:
+            type: object
+            properties:
+              asset_code:
+                type: string
+              issuer:
+                type: string
+        native_balance:
+          type: string
+          description: Native XLM balance merged into the master address, before fees
+        transaction_hash:
+          type: string
+        status:
+          type: string
+          enum:
+          - pending
+          - completed
+          - failed
+        error_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+    CustodySettingsRequest:
+      type: object
+      required:
+      - master_address
+      properties:
+        master_address:
+          type: string
+          description: Stellar account ID (G...) that receives closed wallets' reserves
+        primary_settlement_wallet_id:
+          type: string
+          nullable: true
+        auto_sweep_enabled:
+          type: boolean
+          default: false
+          description: |
+            Opt in to the automated deposit sweep, which moves balances above
+            the operator-configured thresholds from the tenant's custodial
+            wallets into master_address, leaving each wallet its minimum
+            reserve. Emits wallet.swept per swept wallet.
+    CustodySettings:
+      type: object
+      properties:
+        tenant_id:
+          type: string
+        mode:
+          type: string
+        master_address:
+          type: string
+        primary_settlement_wallet_id:
+          type: string
+          nullable: true
+        auto_sweep_enabled:
+          type: boolean
+        updated_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ConsolidationRequest:
+      type: object
+      required:
+      - source_wallet_ids
+      - destination_wallet_id
+      properties:
+        source_wallet_ids:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: string
+        destination_wallet_id:
+          type: string
+        idempotency_key:
+          type: string
+          maxLength: 255
+          description: Required unless dry_run is true
+        merge_sources:
+          type: boolean
+          default: false
+        batch_size:
+          type: integer
+          minimum: 10
+          maximum: 20
+          default: 20
+        dry_run:
+          type: boolean
+          default: false
+    ConsolidationBatch:
+      type: object
+      properties:
+        index:
+          type: integer
+        wallet_ids:
+          type: array
+          items:
+            type: string
+        operations:
+          type: integer
+        fee_stroops:
+          type: integer
+          format: int64
+        fee_payer_wallet_id:
+          type: string
+        transaction_hash:
+          type: string
+        status:
+          type: string
+          enum:
+          - completed
+          - failed
+        error:
+          type: string
+    ConsolidationWalletPlan:
+      type: object
+      properties:
+        wallet_id:
+          type: string
+        public_key:
+          type: string
+        moves:
+          type: array
+          items:
+            $ref: '#/components/schemas/SweepItem'
+        merged:
+          type: boolean
+        skip_reason:
+          type: string
+          enum:
+          - pending_transfers
+          - unfunded
+          - load_failed
+          - nothing_to_move
+          - protected_account
+          - destination_missing_trustline
+          - unsupported_account
+          - fee_unpayable
+    SweepItem:
+      type: object
+      properties:
+        wallet_id:
+          type: string
+        public_key:
+          type: string
+        asset_code:
+          type: string
+        issuer:
+          type: string
+        amount:
+          type: string
+        balance_before:
+          type: string
+        retained:
+          type: string
+    ConsolidationPreview:
+      type: object
+      properties:
+        destination_wallet:
+          type: string
+        merge_sources:
+          type: boolean
+        batch_size:
+          type: integer
+        batches:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsolidationBatch'
+        wallets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsolidationWalletPlan'
+        total_fee:
+          type: string
+        total_fee_stroops:
+          type: integer
+          format: int64
+        reserve_recovered:
+          type: string
+        net_xlm:
+          type: string
+          description: reserve_recovered minus total_fee; negative means a net cost
+        resulting_balances:
+          type: array
+          items:
+            type: object
+            properties:
+              asset_code:
+                type: string
+              issuer:
+                type: string
+              before:
+                type: string
+              after:
+                type: string
+    ConsolidationOperation:
+      type: object
+      properties:
+        id:
+          type: string
+        tenant_id:
+          type: string
+        mode:
+          type: string
+        source_wallet_ids:
+          type: array
+          items:
+            type: string
+        destination_wallet:
+          type: string
+        idempotency_key:
+          type: string
+        merge_sources:
+          type: boolean
+        batch_size:
+          type: integer
+        total_fee:
+          type: string
+        reserve_recovered:
+          type: string
+        status:
+          type: string
+          enum:
+          - pending
+          - processing
+          - completed
+          - partially_completed
+          - failed
+        dry_run:
+          type: boolean
+        transaction_hashes:
+          type: array
+          items:
+            type: string
+        batches:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConsolidationBatch'
+        actor_type:
+          type: string
+        actor_id:
+          type: string
+        error_message:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
     HealthResponse:
       type: object
       properties:
@@ -3899,6 +4407,20 @@ components:
           items:
             type: string
           description: Optional tags for categorization and querying
+        travel_rule:
+          type: object
+          description: Required at or above the configured USD threshold when Travel Rule is enabled.
+          required:
+          - recipient_vasp_id
+          - ivms101
+          properties:
+            recipient_vasp_id:
+              type: string
+              description: Identifier from the operator-managed trusted VASP directory.
+            ivms101:
+              type: object
+              description: IVMS 101 originator and beneficiary party data using standard camelCase field names.
+              additionalProperties: true
     TransferResponse:
       type: object
       properties:
@@ -3921,6 +4443,8 @@ components:
           - confirmed
           - failed
           - reconciliation_failed
+          - compliance_hold
+          - approval_pending
         from_wallet_id:
           type: string
         to_wallet_id:
@@ -4155,7 +4679,9 @@ components:
           description: Optional minimum acceptable output amount
         max_slippage_bps:
           type: integer
-          description: Optional maximum acceptable slippage in basis points
+          minimum: 5
+          maximum: 500
+          description: Maximum acceptable price impact in basis points (5 = 0.05%, 500 = 5%). Defaults to 50 for trades up to 10,000 source units, 100 up to 100,000, and 200 above that.
     ConversionResponse:
       type: object
       properties:
@@ -4429,6 +4955,7 @@ components:
             - transfer.settled
             - transfer.failed
             - wallet.funded
+            - wallet.swept
             - conversion.completed
           description: 'Event types to subscribe to. Omit or pass an empty array to
 
@@ -4488,6 +5015,7 @@ components:
           - transfer.settled
           - transfer.failed
           - wallet.funded
+          - wallet.swept
           - conversion.completed
         status:
           type: string
