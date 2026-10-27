@@ -191,6 +191,8 @@ func New(
 		r.Group(func(r chi.Router) {
 			r.Use(AuthMiddleware(apiKeyRepo, jwtSecret, membershipValidator))
 			r.Use(RateLimit(100, 200))
+			r.With(RequireRole(domain.RoleOwner, domain.RoleAdmin)).
+				Route("/reconciliation", reconcileHandler.DriftRoutes())
 			if transferApprovalHandler != nil {
 				r.With(RequireScope(domain.ScopeTransfersRead)).Get("/transfer-approvals", transferApprovalHandler.List)
 				r.With(RequireRole(domain.RoleOwner, domain.RoleAdmin), RequireScope(domain.ScopeTransfersWrite)).Post("/transfer-approvals/{id}/approve", transferApprovalHandler.Approve)
