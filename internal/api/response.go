@@ -143,6 +143,16 @@ func HandleDomainError(w http.ResponseWriter, err error) {
 	// tell "this rail does not serve that currency" from a malformed request.
 	case errors.Is(err, domain.ErrUnsupportedFiatCurrency):
 		Error(w, http.StatusBadRequest, "UNSUPPORTED_FIAT_CURRENCY", err.Error())
+	// A report requested in an export format the engine does not produce is a
+	// malformed request, distinct from a generic bad request, so clients can
+	// correct the format parameter without guessing.
+	case errors.Is(err, domain.ErrUnsupportedReportFormat):
+		Error(w, http.StatusBadRequest, "UNSUPPORTED_REPORT_FORMAT", err.Error())
+	// Consolidated USD reporting needs a month-end closing rate for every
+	// non-USD holding; when one is missing the report cannot be produced
+	// faithfully, so this is an unprocessable request rather than a server fault.
+	case errors.Is(err, domain.ErrMissingClosingRate):
+		UnprocessableEntity(w, "MISSING_CLOSING_RATE", err.Error())
 	// An unsatisfiable predicate is a 400 with its own code, not a generic bad
 	// request: the caller has to be able to tell "you cannot claim this yet"
 	// (retryable, once the predicate holds) from "this balance is unusable".
