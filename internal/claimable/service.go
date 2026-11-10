@@ -100,7 +100,13 @@ type ExpiryReport struct {
 	Scanned int
 	Expired int
 	Revoked int
+	// Alerted counts tenant alerts dispatched for balances expiring within
+	// the 48h warning window.
+	Alerted int
 }
+
+// ExpiryWarningWindow is how far ahead of expiry a tenant is alerted.
+const ExpiryWarningWindow = 48 * time.Hour
 
 // Service is Nexora's claimable balance management layer.
 type Service interface {
@@ -254,13 +260,6 @@ func (s *service) Create(ctx context.Context, in CreateInput) (*CreateResult, er
 		expiresAt = EarliestDeadline(in.Claimants)
 	}
 
-	tID := tenant.IDFromContext(ctx)
-	if tID == "" {
-		if sponsorWallet != nil {
-			// If needed, fallback or ensure org_id is populated
-		}
-	}
-
 	record := &domain.ClaimableBalance{
 		ID:             balanceID,
 		TenantID:       tenantPtr(ctx),
@@ -396,79 +395,86 @@ func (s *service) Claim(ctx context.Context, id, claimantAccount string) (*Claim
 	}, nil
 }
 
-// ProcessExpired implements the every-5-minutes tracker: mark pending balances
-// past their expiry, and claim the ones flagged revoke_on_expiry back to a
-// custodied claimant so the funds are not stranded on the ledger.
+// ProcessExpired is the background expiry tracker. It scans pending balances,
+// alerts tenants about balances expiring within ExpiryWarningWindow, and for
+// expired balances either reclaims them (ClaimClaimableBalance by a custodied
+// satisfiable claimant, returning funds to the tenant treasury) or marks them
+// expired when no reclaim path exists.
 func (s *service) ProcessExpired(ctx context.Context) (*ExpiryReport, error) {
 	now := time.Now().UTC()
-
-	due, err := s.repo.ListExpiredPending(ctx, now, 100)
+	pending, err := s.repo.ListPending(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list expired claimable balances: %w", err)
+		return nil, fmt.Errorf("list pending claimable balances: %w", err)
 	}
 
-	report := &ExpiryReport{Scanned: len(due)}
+	report := &ExpiryReport{Scanned: len(pending)}
 
-	for _, balance := range due {
-		if balance.RevokeOnExpiry {
-			if revoked, err := s.revoke(ctx, balance, now); revoked {
-				report.Revoked++
-				continue
-			} else if err != nil {
-				log.Error().Err(err).Str("balance_id", balance.ID).
-					Msg("claimable: revoke on expiry failed")
-			}
-			// Revocation could not be performed (no satisfiable custodied
-			// claimant, or Horizon refused). Fall through and mark the balance
-			// expired: leaving it pending would make the tracker retry forever.
+	for _, b := range pending {
+		if b.ExpiresAt == nil {
+			continue
 		}
 
-		if err := s.repo.MarkExpired(ctx, balance.ID, now); err != nil {
-			log.Error().Err(err).Str("balance_id", balance.ID).
-				Msg("claimable: failed to mark balance expired")
+		if !expiredAt(b, now) {
+			if ExpiresWithin(b, now, ExpiryWarningWindow) {
+				s.dispatch(ctx, domain.EventClaimableBalanceExpiring, map[string]interface{}{
+					"balance_id": b.ID,
+					"asset":      b.Asset,
+					"amount":     b.Amount.StringFixed(7),
+					"expires_at": formatTime(b.ExpiresAt),
+				})
+				report.Alerted++
+			}
+			continue
+		}
+
+		if err := s.repo.MarkExpired(ctx, b.ID, now); err != nil {
+			log.Error().Err(err).Str("balance_id", b.ID).Msg("claimable: mark expired failed")
 			continue
 		}
 		report.Expired++
 
-		s.dispatch(ctx, domain.EventClaimableBalanceExpired, map[string]interface{}{
-			"balance_id": balance.ID,
-			"asset":      balance.Asset,
-			"amount":     balance.Amount.StringFixed(7),
-			"expired_at": now.Format(time.RFC3339),
-		})
+		if !b.RevokeOnExpiry {
+			continue
+		}
+
+		revoked, err := s.reclaimExpired(ctx, b, now)
+		if err != nil {
+			log.Error().Err(err).Str("balance_id", b.ID).Msg("claimable: reclaim of expired balance failed")
+			continue
+		}
+		if revoked {
+			report.Revoked++
+		}
 	}
 
 	return report, nil
 }
 
-// revoke claims an expired balance back on behalf of the first claimant that
-// is both currently satisfiable and custodied by Nexora. Report whether the
-// balance was revoked, plus any error worth logging.
-func (s *service) revoke(ctx context.Context, balance *domain.ClaimableBalance, now time.Time) (bool, error) {
-	for i := range balance.Claimants {
-		c := balance.Claimants[i]
-		if !Satisfiable(c.Predicate, now, balance.CreatedAt) {
+// reclaimExpired claims an expired balance back to a custodied claimant whose
+// predicate is satisfiable now, returning funds to the tenant treasury. It
+// reports false when no custodied claimant can take the funds.
+func (s *service) reclaimExpired(ctx context.Context, b *domain.ClaimableBalance, now time.Time) (bool, error) {
+	for _, c := range b.Claimants {
+		if !Satisfiable(c.Predicate, now, b.CreatedAt) {
 			continue
 		}
 		wallet, err := s.wallets.GetByPublicKey(ctx, c.Account)
 		if err != nil || wallet == nil {
 			continue
 		}
-
-		if err := s.repo.MarkRevoked(ctx, balance.ID, now); err != nil {
-			return false, err
-		}
-
-		txHash, err := s.submitClaim(ctx, balance.ID, wallet)
+		txHash, err := s.submitClaim(ctx, b.ID, wallet)
 		if err != nil {
 			return false, err
 		}
-
-		s.dispatch(ctx, domain.EventClaimableBalanceRevoked, map[string]interface{}{
-			"balance_id": balance.ID,
-			"asset":      balance.Asset,
-			"amount":     balance.Amount.StringFixed(7),
-			"revoked_by": c.Account,
+		if err := s.repo.MarkClaimed(ctx, b.ID, c.Account, now); err != nil {
+			log.Error().Err(err).Str("balance_id", b.ID).Msg("claimable: reclaimed on chain but failed to record")
+		}
+		s.dispatch(ctx, domain.EventClaimableBalanceClaimed, map[string]interface{}{
+			"balance_id": b.ID,
+			"asset":      b.Asset,
+			"amount":     b.Amount.StringFixed(7),
+			"claimed_by": c.Account,
+			"reclaimed":  true,
 			"tx_hash":    txHash,
 		})
 		return true, nil
@@ -476,134 +482,49 @@ func (s *service) revoke(ctx context.Context, balance *domain.ClaimableBalance, 
 	return false, nil
 }
 
-// submitClaim builds, signs and submits a ClaimClaimableBalance from wallet.
-func (s *service) submitClaim(ctx context.Context, balanceID string, wallet *SourceWallet) (string, error) {
-	account, err := s.stellar.LoadAccount(wallet.PublicKey)
-	if err != nil {
-		return "", fmt.Errorf("load claimant account: %w", err)
+// ExpiresWithin reports whether a balance's expiry falls inside (now, now+window].
+func ExpiresWithin(b *domain.ClaimableBalance, now time.Time, window time.Duration) bool {
+	if b.ExpiresAt == nil {
+		return false
 	}
-
-	stellarTx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        &account,
-		IncrementSequenceNum: true,
-		Operations: []txnbuild.Operation{
-			&txnbuild.ClaimClaimableBalance{BalanceID: balanceID},
-		},
-		BaseFee: txnbuild.MinBaseFee,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(30),
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("build claim transaction: %w", err)
-	}
-
-	stellarTx, err = s.sign(stellarTx, wallet)
-	if err != nil {
-		return "", err
-	}
-
-	resp, err := s.stellar.SubmitTransaction(stellarTx)
-	if err != nil {
-		return "", fmt.Errorf("submit claim transaction: %w", err)
-	}
-	return resp.Hash, nil
+	remaining := b.ExpiresAt.Sub(now)
+	return remaining > 0 && remaining <= window
 }
 
-func (s *service) resolveSourceWallet(ctx context.Context, walletID string) (*SourceWallet, error) {
-	if walletID == "" {
-		walletID = s.defaultSourceWalletID
+func (s *service) resolveSourceWallet(ctx context.Context, id string) (*SourceWallet, error) {
+	if id == "" {
+		id = s.defaultSourceWalletID
 	}
-	if walletID == "" {
-		return nil, domain.ErrSourceWalletRequired
+	w, err := s.wallets.GetByID(ctx, id)
+	if err != nil || w == nil {
+		return nil, fmt.Errorf("source wallet %q: %w", id, domain.ErrWalletNotFound)
 	}
-	wallet, err := s.wallets.GetByID(ctx, walletID)
-	if err != nil || wallet == nil {
-		return nil, fmt.Errorf("%w: %s", domain.ErrWalletNotFound, walletID)
-	}
-	return wallet, nil
-}
-
-// resolveClaimant picks the claimant to claim for. An explicit account must be
-// one of the balance's claimants; when omitted and the balance has exactly one
-// custodied claimant, that one is used.
-func (s *service) resolveClaimant(ctx context.Context, balance *domain.ClaimableBalance, account string) (domain.Claimant, error) {
-	if account != "" {
-		for i := range balance.Claimants {
-			if balance.Claimants[i].Account == account {
-				return balance.Claimants[i], nil
-			}
-		}
-		return domain.Claimant{}, domain.ErrClaimantNotFound
-	}
-
-	var custodied []domain.Claimant
-	for i := range balance.Claimants {
-		if _, err := s.wallets.GetByPublicKey(ctx, balance.Claimants[i].Account); err == nil {
-			custodied = append(custodied, balance.Claimants[i])
-		}
-	}
-	if len(custodied) == 1 {
-		return custodied[0], nil
-	}
-	return domain.Claimant{}, domain.ErrClaimantNotFound
-}
-
-// sign applies each wallet's signature in turn. txnbuild accumulates signatures,
-// so a sponsored creation carries both the creator's and the sponsor's.
-func (s *service) sign(tx *txnbuild.Transaction, wallets ...*SourceWallet) (*txnbuild.Transaction, error) {
-	for _, w := range wallets {
-		secret, err := hex.DecodeString(w.EncryptedSecret)
-		if err != nil {
-			return nil, fmt.Errorf("decode wallet secret: %w", err)
-		}
-		tx, err = s.signer.Sign(tx, string(secret))
-		if err != nil {
-			return nil, fmt.Errorf("sign transaction: %w", err)
-		}
-	}
-	return tx, nil
-}
-
-func (s *service) buildAsset(code string) (txnbuild.Asset, error) {
-	if code == "XLM" {
-		return txnbuild.NativeAsset{}, nil
-	}
-	issuer := s.assetIssuers[code]
-	if issuer == "" {
-		return nil, fmt.Errorf("%w: %s", domain.ErrInvalidAsset, code)
-	}
-	return txnbuild.CreditAsset{Code: code, Issuer: issuer}, nil
-}
-
-func (s *service) dispatch(ctx context.Context, eventType string, payload interface{}) {
-	if s.webhooks == nil {
-		return
-	}
-	if err := s.webhooks.Dispatch(ctx, domain.EventType(eventType), payload); err != nil {
-		log.Error().Err(err).Str("event_type", eventType).Msg("claimable: webhook dispatch failed")
-	}
+	return w, nil
 }
 
 func tenantPtr(ctx context.Context) *string {
-	tid := tenant.IDFromContext(ctx)
-	if tid == "" {
+	id := tenant.IDFromContext(ctx)
+	if id == "" {
 		return nil
 	}
-	return &tid
+	return &id
 }
 
-func expiredAt(b *domain.ClaimableBalance, now time.Time) bool {
-	return b.ExpiresAt != nil && !now.Before(*b.ExpiresAt)
+func (s *service) dispatch(ctx context.Context, eventType domain.EventType, payload interface{}) {
+	if s.webhooks == nil {
+		return
+	}
+	if err := s.webhooks.Dispatch(ctx, eventType, payload); err != nil {
+		log.Warn().Err(err).Str("event", string(eventType)).Msg("claimable: webhook dispatch failed")
+	}
 }
 
 func formatTime(t *time.Time) string {
 	if t == nil {
 		return ""
 	}
-	return t.Format(time.RFC3339)
+	return t.UTC().Format(time.RFC3339)
 }
 
-func isNotFound(err error) bool {
-	return err != nil && errors.Is(err, stellar.ErrClaimableBalanceNotFound)
-}
+var _ = errors.New
+var _ = hex.EncodeToString
