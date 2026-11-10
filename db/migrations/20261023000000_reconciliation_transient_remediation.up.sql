@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS reconciliation_transient_observations (
     status            TEXT NOT NULL DEFAULT 'observing'
                       CHECK (status IN ('observing', 'resolved', 'escalated')),
     cycles            INTEGER NOT NULL DEFAULT 1 CHECK (cycles >= 1),
+    -- Root cause categories defined by the reconciliation engine (#issue).
+    CONSTRAINT reconciliation_transient_observations_category_check
+        CHECK (category IN ('pending_settlement', 'fee_slippage', 'unindexed_deposit', 'unauthorized_transfer')),
     first_ledger      BIGINT NOT NULL DEFAULT 0,
     last_ledger       BIGINT NOT NULL DEFAULT 0,
     detected_at       TIMESTAMPTZ NOT NULL,
