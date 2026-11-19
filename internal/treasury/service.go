@@ -1,6 +1,10 @@
 // Package treasury monitors the platform fee wallet, computes how much of
 // each asset can safely be moved to cold storage without dipping into
 // Stellar's network reserve requirements, and executes/audits sweeps.
+//
+// It also runs the warm-wallet rebalancing engine (see rebalancer.go), which
+// monitors operational balances against burn rates and produces multi-sig
+// replenishment requests from cold storage.
 package treasury
 
 import (
@@ -86,8 +90,8 @@ type Service interface {
 	GetSweepableAmount(ctx context.Context, asset string) (decimal.Decimal, error)
 	// ExecuteSweep validates amount against the current sweepable balance,
 	// then builds, signs, and submits a payment from the fee wallet to
-	// destination. It always writes a sweep_log record ΓÇö including a
-	// zero-amount audit row when amount is zero ΓÇö and returns the Stellar
+	// destination. It always writes a sweep_log record — including a
+	// zero-amount audit row when amount is zero — and returns the Stellar
 	// tx hash (empty for a zero sweep).
 	ExecuteSweep(ctx context.Context, asset string, amount decimal.Decimal, destination, triggeredBy string) (string, error)
 	GetConfig(ctx context.Context) ([]*Config, error)
@@ -110,7 +114,7 @@ type service struct {
 	baseReserve        decimal.Decimal
 	reserveCacheTTL    time.Duration
 	reserveConcurrency int
-	offersPageLimit    uint
+	offerspageLimit    uint
 
 	reserveMu    sync.Mutex
 	reserveCache *ReserveBreakdown
@@ -193,7 +197,7 @@ func NewService(
 		baseReserve:        defaultBaseReserve,
 		reserveCacheTTL:    defaultReserveCacheTTL,
 		reserveConcurrency: defaultReserveConcurrency,
-		offersPageLimit:    defaultOffersPageLimit,
+		offerspageLimit:    defaultOffersPageLimit,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -230,7 +234,7 @@ func (s *service) GetBalances(ctx context.Context) ([]AssetBalance, error) {
 			if rate, err := s.fxRates.GetRates(ctx, code, "USDC"); err == nil {
 				usd = amt.Mul(rate.Rate)
 			}
-			// No provider for this pair (e.g. XLM today) ΓÇö leave USD
+			// No provider for this pair (e.g. XLM today) — leave USD
 			// equivalent at zero rather than failing the whole call.
 		}
 
@@ -243,7 +247,7 @@ func (s *service) GetBalances(ctx context.Context) ([]AssetBalance, error) {
 // Stellar's protocol requires each account to keep locked up: a fixed
 // 2*baseReserve per account plus baseReserve per trustline and per open
 // offer (Stellar "subentries"). This is a platform-wide obligation, not
-// specific to the fee wallet ΓÇö it's what determines how much of the fee
+// specific to the fee wallet — it's what determines how much of the fee
 // wallet's own XLM is actually free to sweep.
 func (s *service) GetReserveBreakdown(ctx context.Context) (*ReserveBreakdown, error) {
 	if cached := s.cachedReserve(); cached != nil {
@@ -372,220 +376,9 @@ func (s *service) storeReserve(bd *ReserveBreakdown) {
 }
 
 func (s *service) GetReserveRequirement(ctx context.Context) (decimal.Decimal, error) {
-	breakdown, err := s.GetReserveBreakdown(ctx)
+	bd, err := s.GetReserveBreakdown(ctx)
 	if err != nil {
 		return decimal.Zero, err
 	}
-	return breakdown.TotalXLMRequired, nil
-}
-
-// GetSweepableAmount returns balance - (reserve_requirement + min_operating_buffer),
-// floored at zero. The reserve requirement only applies to XLM ΓÇö it's a
-// Stellar-network minimum-balance concept that doesn't exist for other assets.
-func (s *service) GetSweepableAmount(ctx context.Context, asset string) (decimal.Decimal, error) {
-	cfg, err := s.repo.GetConfig(ctx, asset)
-	if err != nil {
-		return decimal.Zero, err
-	}
-
-	balances, err := s.GetBalances(ctx)
-	if err != nil {
-		return decimal.Zero, err
-	}
-
-	var balance decimal.Decimal
-	found := false
-	for _, b := range balances {
-		if b.Asset == asset {
-			balance = b.Balance
-			found = true
-			break
-		}
-	}
-	if !found {
-		return decimal.Zero, nil
-	}
-
-	reserve := decimal.Zero
-	if asset == "XLM" {
-		reserve, err = s.GetReserveRequirement(ctx)
-		if err != nil {
-			return decimal.Zero, err
-		}
-	}
-
-	sweepable := balance.Sub(reserve).Sub(cfg.MinOperatingBuffer)
-	if sweepable.IsNegative() {
-		return decimal.Zero, nil
-	}
-	return sweepable, nil
-}
-
-func (s *service) ExecuteSweep(ctx context.Context, asset string, amount decimal.Decimal, destination, triggeredBy string) (string, error) {
-	sweepable, err := s.GetSweepableAmount(ctx, asset)
-	if err != nil {
-		return "", err
-	}
-	if amount.GreaterThan(sweepable) {
-		return "", domain.ErrInsufficientSweepableBalance
-	}
-
-	if amount.IsZero() {
-		if err := s.repo.RecordSweep(ctx, &SweepLog{
-			ID:          uuid.New().String(),
-			Asset:       asset,
-			Amount:      decimal.Zero,
-			Destination: destination,
-			TxHash:      "",
-			TriggeredBy: triggeredBy,
-			SweptAt:     time.Now().UTC(),
-		}); err != nil {
-			return "", fmt.Errorf("record zero sweep: %w", err)
-		}
-		return "", nil
-	}
-
-	if s.treasurySecretKey == "" {
-		return "", fmt.Errorf("TREASURY_SECRET_KEY is not configured")
-	}
-	if destination == "" {
-		return "", fmt.Errorf("destination address is required")
-	}
-
-	kp, err := keypair.ParseFull(s.treasurySecretKey)
-	if err != nil {
-		return "", fmt.Errorf("parse treasury secret key: %w", err)
-	}
-
-	srcAccount, err := stellar.LoadAccountWithContext(ctx, s.stellar, s.feeWallet)
-	if err != nil {
-		return "", fmt.Errorf("load fee wallet account: %w", err)
-	}
-
-	builtAsset, err := s.buildAsset(asset)
-	if err != nil {
-		return "", err
-	}
-
-	if destination == "" || destination == s.feeWallet {
-		return "", fmt.Errorf("invalid destination address")
-	}
-	_, err = keypair.ParseAddress(destination)
-	if err != nil {
-		return "", fmt.Errorf("invalid stellar destination address: %w", err)
-	}
-
-	stellarTx, err := txnbuild.NewTransaction(txnbuild.TransactionParams{
-		SourceAccount:        &srcAccount,
-		IncrementSequenceNum: true,
-		Operations: []txnbuild.Operation{
-			&txnbuild.Payment{
-				Destination: destination,
-				Asset:       builtAsset,
-				Amount:      amount.StringFixed(7),
-			},
-		},
-		BaseFee: txnbuild.MinBaseFee,
-		Preconditions: txnbuild.Preconditions{
-			TimeBounds: txnbuild.NewTimeout(30),
-		},
-	})
-	if err != nil {
-		return "", fmt.Errorf("build sweep transaction: %w", err)
-	}
-
-	stellarTx, err = stellarTx.Sign(s.networkPassphrase(), kp)
-	if err != nil {
-		return "", fmt.Errorf("sign sweep transaction: %w", err)
-	}
-
-	resp, err := stellar.SubmitTransactionWithContext(ctx, s.stellar, stellarTx)
-	if err != nil {
-		return "", fmt.Errorf("submit sweep transaction: %w", err)
-	}
-
-	if err := s.repo.RecordSweep(ctx, &SweepLog{
-		ID:          uuid.New().String(),
-		Asset:       asset,
-		Amount:      amount,
-		Destination: destination,
-		TxHash:      resp.Hash,
-		TriggeredBy: triggeredBy,
-		SweptAt:     time.Now().UTC(),
-	}); err != nil {
-		log.Error().Err(err).Str("tx_hash", resp.Hash).Msg("treasury: failed to record sweep log")
-	}
-
-	if s.webhookSvc != nil {
-		payload := map[string]interface{}{
-			"asset":        asset,
-			"amount":       amount.StringFixed(7),
-			"destination":  destination,
-			"tx_hash":      resp.Hash,
-			"triggered_by": triggeredBy,
-			"swept_at":     time.Now().UTC().Format(time.RFC3339),
-		}
-		if err := s.webhookSvc.Dispatch(ctx, domain.EventTreasurySweepCompleted, payload); err != nil {
-			log.Error().Err(err).Msg("treasury: failed to dispatch sweep_completed webhook")
-		}
-	}
-
-	// Evaluate balance alerts for the fee wallet after sweep
-	if s.balanceAlertSvc != nil && s.feeWallet != "" {
-		balances, err := s.GetBalances(ctx)
-		if err == nil {
-			balanceMap := make(map[string]decimal.Decimal)
-			for _, b := range balances {
-				balanceMap[b.Asset] = b.Balance
-			}
-			// Use the fee wallet's wallet ID if available, otherwise use the public key
-			walletID := s.feeWallet
-			if err := s.balanceAlertSvc.EvaluateWalletBalances(ctx, walletID, balanceMap); err != nil {
-				log.Error().Err(err).Str("wallet_id", walletID).Msg("treasury: failed to evaluate balance alerts after sweep")
-			}
-		}
-	}
-
-	return resp.Hash, nil
-}
-
-func (s *service) GetConfig(ctx context.Context) ([]*Config, error) {
-	return s.repo.ListConfig(ctx)
-}
-
-func (s *service) UpdateConfig(ctx context.Context, cfg *Config) error {
-	return s.repo.UpdateConfig(ctx, cfg)
-}
-
-func (s *service) ListSweeps(ctx context.Context, limit, offset int) ([]*SweepLog, error) {
-	if limit <= 0 || limit > 100 {
-		limit = 20
-	}
-	return s.repo.ListSweeps(ctx, limit, offset)
-}
-
-func (s *service) buildAsset(code string) (txnbuild.Asset, error) {
-	if code == "XLM" || code == "native" {
-		return txnbuild.NativeAsset{}, nil
-	}
-	var issuer string
-	switch code {
-	case "USDC":
-		issuer = s.usdcIssuer
-	case "EURC":
-		issuer = s.eurcIssuer
-	default:
-		return nil, fmt.Errorf("unknown asset code: %s", code)
-	}
-	if issuer == "" {
-		return nil, fmt.Errorf("issuer not configured for asset: %s", code)
-	}
-	return txnbuild.CreditAsset{Code: code, Issuer: issuer}, nil
-}
-
-func (s *service) networkPassphrase() string {
-	if s.network == "mainnet" || s.network == "public" {
-		return stellarnet.PublicNetworkPassphrase
-	}
-	return stellarnet.TestNetworkPassphrase
+	return bd.TotalXLMRequired, nil
 }

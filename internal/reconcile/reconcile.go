@@ -940,8 +940,8 @@ func (s *Service) RecoverPending(ctx context.Context) error {
 	return nil
 }
 
-// RunBalanceReconciliation is a daily job that compares each wallet's DB balances
-// against live Horizon account balances. Discrepancies are flagged in the
+// RunBalanceReconciliation compares each wallet's DB balances against live
+// Horizon account balances and writes one immutable hourly total per asset.
 // balance_discrepancies table and alerted ΓÇö never auto-corrected.
 func (s *Service) RunBalanceReconciliation(ctx context.Context) error {
 	wallets, err := s.walletRepo.ListAllWallets(ctx)
@@ -954,10 +954,32 @@ func (s *Service) RunBalanceReconciliation(ctx context.Context) error {
 
 	logger.Info().Int("wallet_count", len(wallets)).Msg("reconcile: balance reconciliation starting")
 
+	runAt := time.Now().UTC()
+	snapshots := make([]DriftSnapshot, 0, len(wallets))
+	var firstWalletErr error
 	for _, w := range wallets {
-		if err := s.checkWalletBalance(ctx, w); err != nil {
+		walletSnapshots := make([]DriftSnapshot, 0)
+		err := s.checkWalletBalanceWithSnapshotCollector(ctx, w, func(snapshot *DriftSnapshot) {
+			walletSnapshots = append(walletSnapshots, *snapshot)
+		})
+		if err != nil {
 			logger.Error().Err(err).Str("wallet_id", w.ID).Str("public_key", w.PublicKey).
 				Msg("reconcile: wallet balance check failed")
+			if firstWalletErr == nil {
+				firstWalletErr = fmt.Errorf("wallet %s: %w", w.ID, err)
+			}
+			continue
+		}
+		snapshots = append(snapshots, walletSnapshots...)
+	}
+	if firstWalletErr != nil {
+		return fmt.Errorf("hourly drift snapshot incomplete: %w", firstWalletErr)
+	}
+
+	if repository, ok := s.driftRepo.(DriftTrendRepository); ok && len(snapshots) > 0 {
+		trends := aggregateDriftSnapshots(snapshots, runAt.Truncate(time.Hour), s.driftThreshold)
+		if err := repository.WriteHourlyDriftSnapshots(ctx, trends); err != nil {
+			return fmt.Errorf("write hourly reconciliation drift snapshots: %w", err)
 		}
 	}
 
@@ -966,6 +988,10 @@ func (s *Service) RunBalanceReconciliation(ctx context.Context) error {
 }
 
 func (s *Service) checkWalletBalance(ctx context.Context, w *domain.Wallet) error {
+	return s.checkWalletBalanceWithSnapshotCollector(ctx, w, nil)
+}
+
+func (s *Service) checkWalletBalanceWithSnapshotCollector(ctx context.Context, w *domain.Wallet, collect func(*DriftSnapshot)) error {
 	acct, err := stellar.LoadAccountWithContext(ctx, s.stellar, w.PublicKey)
 	if err != nil {
 		if stellar.IsNotFound(err) {
@@ -1022,6 +1048,9 @@ func (s *Service) checkWalletBalance(ctx context.Context, w *domain.Wallet) erro
 			DriftAmount:     drift,
 			Threshold:       threshold,
 			DetectedAt:      now,
+		}
+		if collect != nil {
+			collect(snapshot)
 		}
 		s.driftMu.Lock()
 		if s.currentDrift == nil {
@@ -1118,9 +1147,10 @@ func (s *Service) checkWalletBalance(ctx context.Context, w *domain.Wallet) erro
 func (s *Service) GetDrift(ctx context.Context) ([]*DriftSnapshot, error) {
 	if s.driftRepo != nil {
 		snapshots, err := s.driftRepo.ListCurrentDrift(ctx)
-		if err == nil {
-			return snapshots, nil
+		if err != nil {
+			return nil, fmt.Errorf("list current reconciliation drift: %w", err)
 		}
+		return snapshots, nil
 	}
 	s.driftMu.RLock()
 	defer s.driftMu.RUnlock()

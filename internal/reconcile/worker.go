@@ -68,7 +68,7 @@ func (w *Worker) HandleReconcile(ctx context.Context, _ *asynq.Task) error {
 	return nil
 }
 
-// HandleBalanceReconcile runs the daily balance reconciliation job.
+// HandleBalanceReconcile runs the hourly balance reconciliation job.
 // It compares DB balances against live Horizon account balances and flags
 // discrepancies -- never auto-corrects.
 func (w *Worker) HandleBalanceReconcile(ctx context.Context, _ *asynq.Task) error {

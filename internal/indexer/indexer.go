@@ -47,12 +47,34 @@ type Indexer struct {
 	walletRepo    wallet.Repository
 	txRepo        transfer.Repository
 	stellar       stellar.Client
+	memoGate      MemoPolicyGate
 	config        Config
 	activeStreams atomic.Int64
 }
 
+// MemoPolicyGate applies a wallet's inbound memo policy to an incoming
+// payment. It is optional: without a gate the indexer credits every payment
+// the way it did before.
+type MemoPolicyGate interface {
+	// EvaluateMemo matches a memo against the wallet's policy. A nil
+	// evaluation means the wallet has no enabled policy, so the payment is
+	// mapped the usual way.
+	EvaluateMemo(ctx context.Context, walletID, memo string) (*domain.MemoEvaluation, error)
+	// RecordUnmappedDeposit files a deposit that could not be mapped in the
+	// pending investigation queue.
+	RecordUnmappedDeposit(ctx context.Context, deposit *domain.UnmappedDeposit) error
+}
+
 func New(walletRepo wallet.Repository, txRepo transfer.Repository, stellarClient stellar.Client) *Indexer {
 	return NewWithConfig(walletRepo, txRepo, stellarClient, DefaultConfig())
+}
+
+// WithMemoPolicyGate enables the inbound memo validation. Payments whose
+// memo does not satisfy the wallet's policy are queued for investigation
+// instead of being credited.
+func (idx *Indexer) WithMemoPolicyGate(gate MemoPolicyGate) *Indexer {
+	idx.memoGate = gate
+	return idx
 }
 
 func NewWithConfig(walletRepo wallet.Repository, txRepo transfer.Repository, stellarClient stellar.Client, config Config) *Indexer {
@@ -368,6 +390,33 @@ func (idx *Indexer) processPayment(ctx context.Context, w *domain.Wallet, op ope
 		}
 	}
 
+	// A wallet with an inbound memo policy only credits the payments whose
+	// memo satisfies it. The others are filed in the investigation queue so
+	// an operator can map them later, or so they can be returned to their
+	// sender once the policy's refund timeout expires.
+	if idx.memoGate != nil {
+		evaluation, err := idx.memoGate.EvaluateMemo(ctx, w.ID, reference)
+		if err != nil {
+			return fmt.Errorf("evaluate the memo policy of wallet %s: %w", w.ID, err)
+		}
+		if evaluation != nil && !evaluation.Matched {
+			// A payment that was already recorded must not be moved to the
+			// refund queue by a stream replay: it may have been credited
+			// before the wallet's policy existed.
+			known, err := idx.txRepo.ExistsByTxHash(ctx, hash)
+			if err != nil {
+				return fmt.Errorf("check transaction %s: %w", hash, err)
+			}
+			if known {
+				return nil
+			}
+			if err := idx.fileUnmappedDeposit(ctx, w, op, asset, amount, reference, evaluation); err != nil {
+				return err
+			}
+			return nil
+		}
+	}
+
 	tx, err := newInboundTransaction(w.ID, w.PublicKey, hash, asset, amount, w.TenantID)
 	if err != nil {
 		return fmt.Errorf("build inbound transaction %s: %w", hash, err)
@@ -383,6 +432,61 @@ func (idx *Indexer) processPayment(ctx context.Context, w *domain.Wallet, op ope
 	log.Info().Str("wallet_id", w.ID).Str("tx_hash", hash).Str("asset", asset).Str("amount", amount).
 		Msg("indexer: recorded inbound payment")
 	return nil
+}
+
+// fileUnmappedDeposit records a deposit whose memo could not be mapped in the
+// pending investigation queue instead of crediting it.
+func (idx *Indexer) fileUnmappedDeposit(ctx context.Context, w *domain.Wallet, op operations.Operation, asset, amount, memo string, evaluation *domain.MemoEvaluation) error {
+	amt, err := decimal.NewFromString(amount)
+	if err != nil {
+		return fmt.Errorf("parse amount %q for asset %s: %w", amount, asset, err)
+	}
+	from, issuer := paymentSender(op)
+	now := time.Now().UTC()
+	deposit := &domain.UnmappedDeposit{
+		ID:            uuid.NewString(),
+		TenantID:      walletTenantID(w),
+		WalletID:      w.ID,
+		Mode:          w.Mode,
+		TxHash:        op.GetTransactionHash(),
+		SourceAddress: from,
+		Asset:         asset,
+		Issuer:        issuer,
+		Amount:        amt,
+		Memo:          memo,
+		Reason:        evaluation.Reason,
+		Status:        domain.UnmappedDepositPending,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := idx.memoGate.RecordUnmappedDeposit(ctx, deposit); err != nil {
+		return fmt.Errorf("record the unmapped deposit %s: %w", deposit.TxHash, err)
+	}
+	log.Info().Str("wallet_id", w.ID).Str("tx_hash", deposit.TxHash).
+		Str("reason", string(deposit.Reason)).
+		Msg("indexer: inbound payment queued for investigation")
+	return nil
+}
+
+// paymentSender returns the account that sent a payment and the issuer of
+// the asset it carried.
+func paymentSender(op operations.Operation) (from, issuer string) {
+	switch p := op.(type) {
+	case operations.PathPayment:
+		return p.From, p.Asset.Issuer
+	case operations.Payment:
+		return p.From, p.Asset.Issuer
+	default:
+		return "", ""
+	}
+}
+
+// walletTenantID returns the tenant that owns a wallet, if any.
+func walletTenantID(w *domain.Wallet) string {
+	if w == nil || w.TenantID == nil {
+		return ""
+	}
+	return *w.TenantID
 }
 
 // paymentDetails extracts the asset code, amount, and destination account

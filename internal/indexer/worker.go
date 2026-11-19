@@ -7,22 +7,57 @@ import (
 	"github.com/Lumen-Nexora/Nexora/internal/config"
 	"github.com/Lumen-Nexora/Nexora/internal/queue"
 	"github.com/Lumen-Nexora/Nexora/internal/tracing"
+	"github.com/Lumen-Nexora/Nexora/internal/wallet"
 	"github.com/hibiken/asynq"
 )
 
 // TypeLedgerGapScan schedules one GapDetector pass over every tenant.
 const TypeLedgerGapScan = "indexer:ledger_gap_scan"
 
+// refundUnmappedDepositLimit bounds how many queued deposits one sweep
+// returns to their sender.
+const refundUnmappedDepositLimit = 100
+
 type Worker struct {
 	indexer *Indexer
 	config  *config.Config
 	gaps    *GapDetector
+	memo    *wallet.MemoPolicyService
 }
 
 // WithGapDetector enables HandleLedgerGapScan.
 func (w *Worker) WithGapDetector(d *GapDetector) *Worker {
 	w.gaps = d
 	return w
+}
+
+// WithMemoPolicyService enables HandleRefundUnmappedDeposits.
+func (w *Worker) WithMemoPolicyService(svc *wallet.MemoPolicyService) *Worker {
+	w.memo = svc
+	return w
+}
+
+// HandleRefundUnmappedDeposits returns the deposits whose memo could not be
+// mapped to their sender. A deposit that was already refunded or resolved
+// is left alone, and a refund that cannot be sent stays queued so the next
+// sweep retries it.
+func (w *Worker) HandleRefundUnmappedDeposits(ctx context.Context, task *asynq.Task) error {
+	ctx = queue.ContextFromTask(ctx, task)
+	ctx, span := tracing.StartConsumer(ctx, task.Type())
+	defer span.End()
+	if w.memo == nil {
+		return nil
+	}
+	logger := tracing.Logger(ctx)
+	refunded, err := w.memo.RefundDueUnmappedDeposits(ctx, refundUnmappedDepositLimit)
+	if err != nil {
+		logger.Error().Err(err).Msg("unmapped deposit refund sweep failed")
+		return err
+	}
+	if refunded > 0 {
+		logger.Info().Int("refunded", refunded).Msg("unmapped deposits returned to their sender")
+	}
+	return nil
 }
 
 // HandleLedgerGapScan ingests new ledgers and backfills gaps for every tenant.

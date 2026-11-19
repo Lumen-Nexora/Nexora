@@ -23,6 +23,10 @@ type Service interface {
 	List(ctx context.Context, filter domain.AuditFilter) ([]*domain.AuditEvent, int, error)
 	Export(ctx context.Context, filter domain.AuditFilter, format string) ([]byte, string, error)
 	Proof(ctx context.Context, txID string) (*SettlementProof, error)
+	// FinancialStatements is implemented in internal/audit/statements.go and
+	// exposed to internal/api/reporting_handler.go. Declared here so the
+	// audit service surface stays the single entry point for reporting.
+	FinancialStatements(ctx context.Context, req StatementRequest) (*StatementBundle, error)
 }
 
 // eventStore is the narrow read/write surface the audit service needs from

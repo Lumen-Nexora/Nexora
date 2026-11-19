@@ -59,6 +59,12 @@ func (h *Handler) AdminRoutes() func(r chi.Router) {
 	}
 }
 
+func (h *Handler) DriftRoutes() func(r chi.Router) {
+	return func(r chi.Router) {
+		r.Get("/drift/trends", h.driftTrends)
+	}
+}
+
 func (h *Handler) discrepancies(w http.ResponseWriter, r *http.Request) {
 	tenantID := tenant.IDFromContext(r.Context())
 	if tenantID == "" {
@@ -208,6 +214,49 @@ func (h *Handler) drift(w http.ResponseWriter, r *http.Request) {
 		"drift":   snapshots,
 		"count":   len(snapshots),
 		"checked": time.Now().UTC(),
+	})
+}
+
+func (h *Handler) driftTrends(w http.ResponseWriter, r *http.Request) {
+	now := time.Now().UTC()
+	to := now
+	if raw := strings.TrimSpace(r.URL.Query().Get("to")); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			api.BadRequest(w, "to must be an RFC3339 timestamp")
+			return
+		}
+		to = parsed.UTC()
+	}
+	from := to.Add(-24 * time.Hour)
+	if raw := strings.TrimSpace(r.URL.Query().Get("from")); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			api.BadRequest(w, "from must be an RFC3339 timestamp")
+			return
+		}
+		from = parsed.UTC()
+	}
+	if !from.Before(to) {
+		api.BadRequest(w, "from must be before to")
+		return
+	}
+	if to.Sub(from) > 90*24*time.Hour {
+		api.BadRequest(w, "time range cannot exceed 90 days")
+		return
+	}
+	asset := strings.TrimSpace(r.URL.Query().Get("asset"))
+	trends, err := h.svc.GetDriftTrends(r.Context(), from, to, asset)
+	if err != nil {
+		api.InternalError(w, err)
+		return
+	}
+	api.JSON(w, http.StatusOK, map[string]interface{}{
+		"trends": trends,
+		"count":  len(trends),
+		"from":   from,
+		"to":     to,
+		"asset":  asset,
 	})
 }
 
