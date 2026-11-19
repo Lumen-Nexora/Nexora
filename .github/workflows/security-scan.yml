@@ -1,0 +1,109 @@
+name: Supply Chain & Security Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  supply-chain-integrity:
+    name: Supply Chain Integrity & Malicious Script Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify package.json script integrity
+        run: |
+          echo "Scanning package.json files for unauthorized execution hooks..."
+          # Reject suspicious pre/post install hooks or command chaining with unauthorized binaries
+          SUSPICIOUS_SCRIPTS=$(grep -rnE '(node\s+init|curl.*\|\s*(bash|sh)|wget.*\|\s*(bash|sh)|eval\(|spawn\(.*node.*-i)' apps/ sdk/ || true)
+          if [ -n "$SUSPICIOUS_SCRIPTS" ]; then
+            echo "::error::Suspicious execution hook detected in scripts:"
+            echo "$SUSPICIOUS_SCRIPTS"
+            exit 1
+          fi
+          echo "No unauthorized execution hooks found."
+
+      - name: Scan for unapproved init scripts or obfuscated code
+        run: |
+          echo "Scanning for rogue init scripts or packed JavaScript..."
+          ROGUE_INIT=$(find . -name "init" -not -path "*/.git/*" || true)
+          if [ -n "$ROGUE_INIT" ]; then
+            echo "::error::Rogue init script file found:"
+            echo "$ROGUE_INIT"
+            exit 1
+          fi
+
+          OBFUSCATED=$(grep -rnE '(_0x[a-f0-9]{4,6}|0x1eEf0849EDa15d87f64e51C73C8442Cf3c8bCEF3)' . \
+            --exclude-dir=".git" \
+            --exclude-dir="node_modules" \
+            --exclude="*.log" || true)
+          if [ -n "$OBFUSCATED" ]; then
+            echo "::error::Known malicious signature or heavy obfuscation detected:"
+            echo "$OBFUSCATED"
+            exit 1
+          fi
+          echo "Repository is clean of known obfuscation patterns."
+
+      - name: Verify .gitignore protections
+        run: |
+          echo "Verifying environment and IDE ignore rules..."
+          for entry in ".env" ".env.local" ".vscode/"; do
+            if ! grep -q "^$entry" .gitignore; then
+              echo "::error::Missing critical ignore entry '$entry' in .gitignore"
+              exit 1
+            fi
+          done
+          echo ".gitignore contains all required security protections."
+
+  secret-scanning:
+    name: Secret & Credential Leak Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Scan for exposed Stellar secrets and private keys
+        run: |
+          echo "Scanning for exposed Stellar private seeds (S...)..."
+          STELLAR_SECRETS=$(grep -rnE '\bS[A-Z0-9]{55}\b' . \
+            --exclude-dir=".git" \
+            --exclude-dir="node_modules" \
+            --exclude-dir="testdata" \
+            --exclude="*.md" || true)
+          if [ -n "$STELLAR_SECRETS" ]; then
+            echo "::error::Potential exposed Stellar secret key detected:"
+            echo "$STELLAR_SECRETS"
+            exit 1
+          fi
+          echo "No exposed Stellar private keys detected."
+
+  npm-audit:
+    name: NPM Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Audit apps/web dependencies
+        working-directory: apps/web
+        run: |
+          echo "Auditing apps/web dependencies..."
+          npm audit --audit-level=critical || true
+
+      - name: Audit sdk dependencies
+        working-directory: sdk
+        run: |
+          echo "Auditing sdk dependencies..."
+          npm audit --audit-level=critical || true

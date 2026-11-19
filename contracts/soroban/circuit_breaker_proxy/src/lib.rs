@@ -266,7 +266,7 @@ impl CircuitBreakerProxy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use soroban_sdk::testutils::{Address as _, Env as _};
+    use soroban_sdk::testutils::{Address as _, Env as _, Ledger as _};
 
     #[test]
     fn test_initialize() {
@@ -288,5 +288,140 @@ mod tests {
 
         let state = CircuitBreakerProxy::get_circuit_state(env).unwrap();
         assert!(matches!(state.state, CircuitState::Closed));
+    }
+
+    #[test]
+    fn test_record_failure_trip_circuit() {
+        let env = Env::default();
+        let admin = Address::random(&env);
+        let impl_addr = Address::random(&env);
+
+        CircuitBreakerProxy::initialize(env.clone(), admin, impl_addr, 3, 300).unwrap();
+
+        assert!(!CircuitBreakerProxy::is_circuit_open(env.clone()).unwrap());
+
+        CircuitBreakerProxy::record_failure(env.clone()).unwrap();
+        CircuitBreakerProxy::record_failure(env.clone()).unwrap();
+        assert!(!CircuitBreakerProxy::is_circuit_open(env.clone()).unwrap());
+
+        // Third failure hits threshold (3) -> opens circuit
+        CircuitBreakerProxy::record_failure(env.clone()).unwrap();
+        let state = CircuitBreakerProxy::get_circuit_state(env.clone()).unwrap();
+        assert!(matches!(state.state, CircuitState::Open));
+        assert_eq!(state.failure_count, 3);
+        assert!(CircuitBreakerProxy::is_circuit_open(env.clone()).unwrap());
+    }
+
+    #[test]
+    fn test_record_success_resets_failures() {
+        let env = Env::default();
+        let admin = Address::random(&env);
+        let impl_addr = Address::random(&env);
+
+        CircuitBreakerProxy::initialize(env.clone(), admin, impl_addr, 5, 300).unwrap();
+
+        CircuitBreakerProxy::record_failure(env.clone()).unwrap();
+        CircuitBreakerProxy::record_failure(env.clone()).unwrap();
+        let state_before = CircuitBreakerProxy::get_circuit_state(env.clone()).unwrap();
+        assert_eq!(state_before.failure_count, 2);
+
+        CircuitBreakerProxy::record_success(env.clone()).unwrap();
+        let state_after = CircuitBreakerProxy::get_circuit_state(env.clone()).unwrap();
+        assert_eq!(state_after.failure_count, 0);
+        assert!(matches!(state_after.state, CircuitState::Closed));
+    }
+
+    #[test]
+    fn test_recovery_timeout_lifecycle() {
+        let env = Env::default();
+        let admin = Address::random(&env);
+        let impl_addr = Address::random(&env);
+
+        env.ledger().set_timestamp(1000);
+        CircuitBreakerProxy::initialize(env.clone(), admin.clone(), impl_addr, 2, 300).unwrap();
+
+        // Trip circuit
+        CircuitBreakerProxy::record_failure(env.clone()).unwrap();
+        CircuitBreakerProxy::record_failure(env.clone()).unwrap();
+        assert!(CircuitBreakerProxy::is_circuit_open(env.clone()).unwrap());
+
+        // Attempt recovery before timeout (elapsed 100s < 300s timeout) -> rejected
+        env.ledger().set_timestamp(1100);
+        let early_res = CircuitBreakerProxy::attempt_recovery(env.clone());
+        assert_eq!(early_res, Err(CircuitError::CircuitOpen));
+
+        // Advance timestamp past timeout (elapsed 350s > 300s) -> transitions to HalfOpen
+        env.ledger().set_timestamp(1350);
+        let recovery_res = CircuitBreakerProxy::attempt_recovery(env.clone());
+        assert!(recovery_res.is_ok());
+
+        let state = CircuitBreakerProxy::get_circuit_state(env.clone()).unwrap();
+        assert!(matches!(state.state, CircuitState::HalfOpen));
+        assert_eq!(state.failure_count, 0);
+
+        // Success while HalfOpen closes circuit
+        CircuitBreakerProxy::record_success(env.clone()).unwrap();
+        let final_state = CircuitBreakerProxy::get_circuit_state(env.clone()).unwrap();
+        assert!(matches!(final_state.state, CircuitState::Closed));
+    }
+
+    #[test]
+    fn test_admin_manual_reset() {
+        let env = Env::default();
+        let admin = Address::random(&env);
+        let impl_addr = Address::random(&env);
+
+        CircuitBreakerProxy::initialize(env.clone(), admin.clone(), impl_addr, 1, 300).unwrap();
+
+        // Trip circuit
+        CircuitBreakerProxy::record_failure(env.clone()).unwrap();
+        assert!(CircuitBreakerProxy::is_circuit_open(env.clone()).unwrap());
+
+        // Admin resets circuit manually
+        CircuitBreakerProxy::reset_circuit(env.clone()).unwrap();
+
+        let state = CircuitBreakerProxy::get_circuit_state(env.clone()).unwrap();
+        assert!(matches!(state.state, CircuitState::Closed));
+        assert_eq!(state.failure_count, 0);
+    }
+
+    #[test]
+    fn test_upgrade_implementation_and_history() {
+        let env = Env::default();
+        let admin = Address::random(&env);
+        let impl1 = Address::random(&env);
+        let impl2 = Address::random(&env);
+
+        CircuitBreakerProxy::initialize(env.clone(), admin.clone(), impl1.clone(), 5, 300).unwrap();
+
+        assert_eq!(CircuitBreakerProxy::get_implementation(env.clone()).unwrap(), impl1);
+        let prev_initial = CircuitBreakerProxy::get_previous_implementations(env.clone()).unwrap();
+        assert_eq!(prev_initial.len(), 0);
+
+        // Upgrade implementation
+        CircuitBreakerProxy::upgrade_implementation(env.clone(), impl2.clone()).unwrap();
+        assert_eq!(CircuitBreakerProxy::get_implementation(env.clone()).unwrap(), impl2);
+
+        let prev_after = CircuitBreakerProxy::get_previous_implementations(env.clone()).unwrap();
+        assert_eq!(prev_after.len(), 1);
+        assert_eq!(prev_after.get(0).unwrap(), impl1);
+    }
+
+    #[test]
+    fn test_prevent_duplicate_initialization() {
+        let env = Env::default();
+        let admin = Address::random(&env);
+        let impl_addr = Address::random(&env);
+
+        CircuitBreakerProxy::initialize(env.clone(), admin.clone(), impl_addr.clone(), 5, 300).unwrap();
+        let dup = CircuitBreakerProxy::initialize(env.clone(), admin, impl_addr, 5, 300);
+        assert_eq!(dup, Err(CircuitError::AlreadyInitialized));
+    }
+
+    #[test]
+    fn test_uninitialized_calls_rejected() {
+        let env = Env::default();
+        assert_eq!(CircuitBreakerProxy::record_failure(env.clone()), Err(CircuitError::NotInitialized));
+        assert_eq!(CircuitBreakerProxy::get_circuit_state(env.clone()), Err(CircuitError::NotInitialized));
     }
 }

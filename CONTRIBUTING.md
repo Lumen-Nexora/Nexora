@@ -185,6 +185,18 @@ across both TypeScript packages.
 - **Interface-first**: define the interface in the package that owns the domain (`wallet.Service`, `wallet.Repository`); implementations live in `postgres/` or elsewhere
 - **Comments**: only if the _why_ is genuinely non-obvious; don't describe what the code does
 - **No extra files**: don't add docs, notes, or scripts the issue didn't require
+- **Supply chain integrity**: NEVER introduce unauthorized pre/post install scripts, custom `init` binaries, or obfuscated/packed JavaScript. All package scripts must remain standard and auditable.
+- **Dependency hygiene**: Do not add external dependencies without maintainer approval. Any new dependency must be vetted for security and pass `npm audit` / `cargo audit`.
+
+---
+
+## Supply Chain & Security Rules for Contributors
+
+All contributions must adhere to our automated security gate (`.github/workflows/security-scan.yml`):
+1. **Script Integrity**: Do not modify `package.json` scripts (`build`, `dev`, `start`) to chain arbitrary scripts or run background binaries.
+2. **No Packed/Obfuscated Code**: All code must be human-readable. Submissions with minified/obfuscated code, hex strings, or dynamic `eval` loaders will be immediately rejected and contributor access revoked.
+3. **Clean Commit History**: Do not commit compiled binaries (`api`, `worker`, `.wasm`, `.exe`). Ensure your git history contains only source files.
+4. **Secret Protection**: Never commit API keys, `.env` files, or private cryptographic keys (including Stellar secret seeds starting with `S`).
 
 ---
 
