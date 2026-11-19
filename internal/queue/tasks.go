@@ -28,6 +28,9 @@ const (
 	// TypeExpireRateLocks periodically identifies expired, unconsumed rate locks,
 	// updates status to expired, and releases associated balance holds.
 	TypeExpireRateLocks = "fx:expire_locks"
+	// TypeRefundUnmappedDeposits sweeps the pending investigation queue and
+	// returns the deposits whose memo could not be mapped to their sender.
+	TypeRefundUnmappedDeposits = "wallet:refund_unmapped_deposits"
 	// TypeCustodialSweep aggregates customer deposits from custodial wallets
 	// into each opted-in tenant's master address.
 	TypeCustodialSweep = "wallet:custodial_sweep"

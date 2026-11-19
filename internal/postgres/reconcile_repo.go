@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Lumen-Nexora/Nexora/internal/domain"
 	"github.com/Lumen-Nexora/Nexora/internal/reconcile"
@@ -110,6 +111,7 @@ func (r *ReconcileRepo) ListCurrentDrift(ctx context.Context) ([]*reconcile.Drif
 		 SELECT id, tenant_id, wallet_id, wallet_address, asset, expected_balance, actual_balance, drift_amount, threshold, detected_at,
 		        ROW_NUMBER() OVER (PARTITION BY wallet_id, asset ORDER BY detected_at DESC, id DESC) AS row_number
 		 FROM reconciliation_drift_snapshots
+		 WHERE wallet_id IS NOT NULL
 		 ) latest
 		 WHERE row_number = 1
 		 ORDER BY detected_at DESC`,
@@ -154,4 +156,71 @@ func (r *ReconcileRepo) ListCurrentDrift(ctx context.Context) ([]*reconcile.Drif
 	return snapshots, rows.Err()
 }
 
+func (r *ReconcileRepo) WriteHourlyDriftSnapshots(ctx context.Context, snapshots []reconcile.DriftTrendSnapshot) error {
+	for _, snapshot := range snapshots {
+		_, err := r.db.Exec(ctx,
+			`INSERT INTO reconciliation_drift_snapshots
+			 (id, asset, expected_balance, actual_balance, drift_amount, threshold, detected_at, snapshot_hour)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			 ON CONFLICT (asset, snapshot_hour) WHERE snapshot_hour IS NOT NULL DO NOTHING`,
+			snapshot.ID, snapshot.Asset, snapshot.TotalInternalLedgerBalance.String(),
+			snapshot.TotalOnChainBalance.String(), snapshot.NetDrift.String(), snapshot.Threshold.String(),
+			snapshot.SnapshotHour, snapshot.SnapshotHour,
+		)
+		if err != nil {
+			return fmt.Errorf("write hourly drift snapshot for %s: %w", snapshot.Asset, err)
+		}
+	}
+	return nil
+}
+
+func (r *ReconcileRepo) ListDriftTrendSnapshots(ctx context.Context, from, to time.Time, asset string) ([]*reconcile.DriftTrendSnapshot, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT id, asset, expected_balance, actual_balance, drift_amount, threshold, snapshot_hour
+		 FROM reconciliation_drift_snapshots
+		 WHERE snapshot_hour IS NOT NULL
+		   AND snapshot_hour >= $1 AND snapshot_hour < $2
+		   AND ($3 = '' OR asset = $3)
+		 ORDER BY snapshot_hour ASC, asset ASC`,
+		from, to, asset,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list hourly drift snapshots: %w", err)
+	}
+	defer rows.Close()
+
+	var snapshots []*reconcile.DriftTrendSnapshot
+	for rows.Next() {
+		snapshot := &reconcile.DriftTrendSnapshot{}
+		var expected, actual, drift, threshold string
+		if err := rows.Scan(
+			&snapshot.ID, &snapshot.Asset, &expected, &actual, &drift, &threshold, &snapshot.SnapshotHour,
+		); err != nil {
+			return nil, fmt.Errorf("scan hourly drift snapshot: %w", err)
+		}
+		snapshot.TotalInternalLedgerBalance, err = decimal.NewFromString(expected)
+		if err != nil {
+			return nil, fmt.Errorf("parse internal ledger total for %s: %w", snapshot.Asset, err)
+		}
+		snapshot.TotalOnChainBalance, err = decimal.NewFromString(actual)
+		if err != nil {
+			return nil, fmt.Errorf("parse on-chain total for %s: %w", snapshot.Asset, err)
+		}
+		snapshot.NetDrift, err = decimal.NewFromString(drift)
+		if err != nil {
+			return nil, fmt.Errorf("parse net drift for %s: %w", snapshot.Asset, err)
+		}
+		snapshot.Threshold, err = decimal.NewFromString(threshold)
+		if err != nil {
+			return nil, fmt.Errorf("parse drift threshold for %s: %w", snapshot.Asset, err)
+		}
+		snapshots = append(snapshots, snapshot)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate hourly drift snapshots: %w", err)
+	}
+	return snapshots, nil
+}
+
 var _ reconcile.DriftRepository = (*ReconcileRepo)(nil)
+var _ reconcile.DriftTrendRepository = (*ReconcileRepo)(nil)

@@ -167,6 +167,8 @@ func main() {
 	incidentRepo := postgres.NewIncidentRepository(db)
 	idempotencyRepo := postgres.NewIdempotencyRepo(repoDB)
 	complianceRepo := postgres.NewComplianceRepo(repoDB).WithPrimary(db)
+	auditRepo := postgres.NewAuditRepo(repoDB)
+	auditSvc := audit.NewService(auditRepo)
 	idemMW := idempotency.MiddlewareWithOptions(idempotencyRepo, idempotency.Options{
 		TTL: time.Duration(cfg.IdempotencyTTLHours) * time.Hour,
 	})
@@ -225,6 +227,13 @@ func main() {
 		WithSignerResolver(signerResolver).
 		WithTestnetProvisioner(wallet.NewFriendbotProvisioner(cfg.FriendbotURL)).
 		WithIssuers(cfg.StellarUSDCIssuer, cfg.StellarEURCIssuer)
+
+	// The inbound memo policy of a wallet is enforced by the indexer: a
+	// payment whose memo does not satisfy the policy is queued for
+	// investigation instead of being credited to a customer, and is returned
+	// to its sender once the policy's refund timeout expires.
+	memoPolicyRepo := postgres.NewMemoPolicyRepo(repoDB)
+	memoPolicySvc := wallet.NewMemoPolicyService(memoPolicyRepo, walletRepo, walletSvc, auditSvc)
 	transferSvc := transfer.ConfigureClientResolver(
 		transfer.ConfigureStellarClient(transfer.NewService(txRepo, walletRepo, feeSvc, queueClient, tenantRepo), stellarClient),
 		clientResolver,
@@ -355,8 +364,8 @@ func main() {
 		WithSettlementDetailsRecorder(networkFeeRecorder)
 	settlementWorker := settlement.NewWorker(engine)
 
-	idx := indexer.New(walletRepo, txRepo, stellarClient)
-	indexerWorker := indexer.NewWorker(idx, cfg)
+	idx := indexer.New(walletRepo, txRepo, stellarClient).WithMemoPolicyGate(memoPolicySvc)
+	indexerWorker := indexer.NewWorker(idx, cfg).WithMemoPolicyService(memoPolicySvc)
 
 	asynqSrv := asynq.NewServer(asynqOpt, asynq.Config{
 		Concurrency: 5,
@@ -370,6 +379,7 @@ func main() {
 	asynqMux.Use(logging.WorkerMiddleware(log.Logger))
 	asynqMux.HandleFunc(queue.TypeProcessTransfer, settlementWorker.HandleProcessTransfer)
 	asynqMux.HandleFunc(queue.TypeSyncLedger, indexerWorker.HandleSyncLedger)
+	asynqMux.HandleFunc(queue.TypeRefundUnmappedDeposits, indexerWorker.HandleRefundUnmappedDeposits)
 
 	if cfg.WorkerEnabled {
 		go func() {
@@ -420,7 +430,8 @@ func main() {
 		stellar.NewPreflightClient(cfg.StellarLiveHorizonURL, cfg.StellarHorizonTimeout),
 		stellar.NewPreflightClient(cfg.StellarTestnetHorizonURL, cfg.StellarHorizonTimeout),
 		simulationRedis, cfg.StellarLiveHorizonURL+"|"+cfg.StellarTestnetHorizonURL)
-	walletHandler := wallet.NewHandler(walletSvc).WithIdempotency(idemMW).WithSimulation(simulationSvc)
+	walletHandler := wallet.NewHandler(walletSvc).WithIdempotency(idemMW).WithSimulation(simulationSvc).WithMemoPolicyService(memoPolicySvc)
+	memoPolicyHandler := wallet.NewMemoPolicyHandler(memoPolicySvc)
 
 	// Contract wallets are opt-in: without an installed WASM hash the API keeps
 	// serving custodial wallets only and the contract routes stay unregistered.
@@ -591,6 +602,7 @@ func main() {
 		idempotencyHandler,
 		transferApprovalHandler,
 		tenantDataHandler,
+		memoPolicyHandler,
 		server.AuditScopeDenials(auditSvc),
 		geoOptions,
 		travelRuleHandler,

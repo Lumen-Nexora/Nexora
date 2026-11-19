@@ -1,0 +1,18 @@
+{
+  "default_branch": "main",
+  "branches": [
+    "main",
+    "origin",
+    "security/issue-116-discrepancy-resolution-workflow-operator-sign"
+  ],
+  "parent": {
+    "main": null,
+    "origin": "main",
+    "security/issue-116-discrepancy-resolution-workflow-operator-sign": "main"
+  },
+  "order": [
+    "main",
+    "origin",
+    "security/issue-116-discrepancy-resolution-workflow-operator-sign"
+  ]
+}

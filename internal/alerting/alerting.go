@@ -39,6 +39,19 @@ type DriftAlert struct {
 	DetectedAt      string `json:"detected_at"`
 }
 
+// TreasuryAlert describes a hot/warm wallet treasury event, such as a balance
+// falling below the emergency threshold or a replenishment request being raised.
+type TreasuryAlert struct {
+	WalletID          string `json:"wallet_id"`
+	WalletAddress     string `json:"wallet_address"`
+	Asset             string `json:"asset"`
+	CurrentBalance    string `json:"current_balance"`
+	EmergencyThreshold string `json:"emergency_threshold"`
+	RunwayHours       string `json:"runway_hours"`
+	ReplenishAmount   string `json:"replenish_amount,omitempty"`
+	DetectedAt        string `json:"detected_at"`
+}
+
 type Client struct {
 	webhookURL string
 	httpClient *http.Client
@@ -140,6 +153,54 @@ func (c *Client) SendDrift(ctx context.Context, alert DriftAlert) {
 		Str("asset", alert.Asset).
 		Str("drift_amount", alert.DriftAmount).
 		Msg("alerting: reconciliation drift alert sent")
+}
+
+// SendTreasury posts a treasury event (e.g. hot wallet below emergency
+// threshold) to the configured webhook, so the treasury team is notified
+// through the same Slack/email pipeline used for other alerts.
+func (c *Client) SendTreasury(ctx context.Context, level Level, title string, alert TreasuryAlert) {
+	if c.webhookURL == "" {
+		log.Warn().Str("title", title).Msg("alerting: no webhook configured, treasury alert skipped")
+		return
+	}
+	logger := tracing.Logger(ctx)
+	body, err := json.Marshal(struct {
+		Level   Level         `json:"level"`
+		Title   string        `json:"title"`
+		Service string        `json:"service"`
+		Alert   TreasuryAlert `json:"alert"`
+	}{
+		Level:   level,
+		Title:   title,
+		Service: c.service,
+		Alert:   alert,
+	})
+	if err != nil {
+		logger.Error().Err(err).Msg("alerting: marshal treasury alert")
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.webhookURL, bytes.NewReader(body))
+	if err != nil {
+		logger.Error().Err(err).Msg("alerting: create treasury request")
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		logger.Error().Err(err).Msg("alerting: send treasury request")
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		logger.Error().Int("status", resp.StatusCode).Msg("alerting: treasury webhook returned error")
+		return
+	}
+	logger.Warn().
+		Str("wallet_id", alert.WalletID).
+		Str("wallet_address", alert.WalletAddress).
+		Str("asset", alert.Asset).
+		Str("current_balance", alert.CurrentBalance).
+		Msg("alerting: treasury alert sent")
 }
 
 func (c *Client) Critical(ctx context.Context, title, message string) {

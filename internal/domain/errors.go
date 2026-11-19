@@ -79,6 +79,8 @@ var (
 	ErrDuplicateAlert             = errors.New("wallet balance alert already exists for this wallet and asset")
 	ErrMarginNotFound             = errors.New("tenant FX margin not found")
 	ErrMarginCeilingExceeded      = errors.New("FX margin markup exceeds allowable ceilings")
+	ErrMemoPolicyNotFound         = errors.New("wallet memo policy not found")
+	ErrUnmappedDepositNotFound    = errors.New("unmapped deposit not found")
 	ErrCorridorConflict           = errors.New("corridor from_asset and to_asset cannot be identical")
 	ErrDuplicateMarginTier        = errors.New("margin configuration already exists for this tenant, corridor, and tier")
 	ErrNetworkFeeNotFound         = errors.New("network fee charge not found")

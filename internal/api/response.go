@@ -124,6 +124,7 @@ func HandleDomainError(w http.ResponseWriter, err error) {
 		errors.Is(err, domain.ErrUserNotFound), errors.Is(err, domain.ErrOrgNotFound), errors.Is(err, domain.ErrOrgMemberNotFound),
 		errors.Is(err, domain.ErrInviteNotFound), errors.Is(err, domain.ErrClaimableBalanceNotFound),
 		errors.Is(err, domain.ErrMarginNotFound),
+		errors.Is(err, domain.ErrMemoPolicyNotFound), errors.Is(err, domain.ErrUnmappedDepositNotFound),
 		errors.Is(err, domain.ErrAccountClosureNotFound), errors.Is(err, domain.ErrCustodySettingsNotFound),
 		errors.Is(err, domain.ErrConsolidationNotFound):
 		NotFound(w, err.Error())
